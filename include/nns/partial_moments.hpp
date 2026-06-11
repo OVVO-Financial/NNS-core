@@ -17,7 +17,7 @@ struct PMMatrixResult {
   std::vector<double> dlpm; // Divergent Lower Partial Moment matrix (column-major)
   std::vector<double> clpm; // Co-Lower Partial Moment matrix (column-major)
   std::vector<double> cov;  // Covariance matrix (column-major)
-  std::size_t p;            // Number of columns/variables
+  std::size_t dim;          // <-- Changed from 'p' to 'dim' to match your .cpp file
 };
 
 // --- Univariate Partial Moments ---
