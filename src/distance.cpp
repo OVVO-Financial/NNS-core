@@ -1,6 +1,6 @@
 // src/distance.cpp
 //
-// Implementation extracted from NNS 13.0. Decoupled from Rcpp.
+// Implementation extracted from NNS 13.0 NNS_distance.cpp. Decoupled from Rcpp.
 //
 // SPDX-License-Identifier: GPL-3.0-only
 #include "nns/distance.hpp"
@@ -61,18 +61,15 @@ inline double pdf_exp(double x, double rate) {
 }
 
 inline double pdf_t_prop(double x, double df) {
-  // Proportional student-t density (normalization handled downstream)
   return std::pow(1.0 + (x * x) / df, -(df + 1.0) / 2.0);
 }
 
 inline double pdf_norm_prop(double x, double mu, double sigma) {
-  // Proportional normal density
   double z = (x - mu) / sigma;
   return std::exp(-0.5 * z * z);
 }
 
 inline double pdf_lnorm_log(double x, double meanlog, double sdlog) {
-  // Log density of Lognormal distribution
   if (x <= 0.0) return -std::numeric_limits<double>::infinity();
   return -std::log(x * sdlog * M_SQRT2PI) - 0.5 * std::pow((std::log(x) - meanlog) / sdlog, 2.0);
 }
@@ -114,7 +111,6 @@ double mode_class_weighted(const std::vector<double>& y, const std::vector<doubl
   return best_val;
 }
 
-// Helper to compute contiguous row distances rapidly
 inline void compute_distances(const double* rpm, int n, int p,
                               const std::vector<double>& test_row,
                               std::vector<double>& dist_out) {
@@ -340,7 +336,7 @@ std::vector<double> distance_bulk(const double* RPM, std::size_t n, std::size_t 
   return out;
 }
 
-// ---------- Parallel Path and Single Path ----------
+// ---------- Parallel Path ----------
 
 std::vector<double> distance_path_parallel(const double* RPM, std::size_t l, std::size_t n,
                                            const double* yhat, const double* Xtest, std::size_t m,
@@ -487,5 +483,141 @@ std::vector<double> distance_path_parallel(const double* RPM, std::size_t l, std
   return out;
 }
 
+// ---------- Parallel Single Path ----------
+
 std::vector<double> distance_path_single_parallel(const double* RPM, std::size_t l, std::size_t n,
-                                                  const double* yhat, const double* Xtest,
+                                                  const double* yhat, const double* Xtest, std::size_t m,
+                                                  int k, bool is_class, int nthreads) {
+  if (k <= 0) k = static_cast<int>(l);
+  if (k > static_cast<int>(l)) k = static_cast<int>(l);
+  
+  std::vector<double> minRPM(n, std::numeric_limits<double>::infinity());
+  std::vector<double> maxRPM(n, -std::numeric_limits<double>::infinity());
+  for (std::size_t j = 0; j < n; ++j) {
+    for (std::size_t i = 0; i < l; ++i) {
+      double v = at(RPM, l, i, j);
+      if (std::isfinite(v)) { if (v < minRPM[j]) minRPM[j] = v; if (v > maxRPM[j]) maxRPM[j] = v; }
+    }
+    if (!std::isfinite(minRPM[j])) { minRPM[j] = 0.0; maxRPM[j] = 0.0; }
+  }
+  
+  std::vector<double> uniW(k, 1.0 / static_cast<double>(k));
+  
+  std::vector<double> expW(k);
+  for (int r = 1; r <= k; ++r) expW[r - 1] = pdf_exp(static_cast<double>(r), 1.0 / static_cast<double>(k));
+  double exs = std::accumulate(expW.begin(), expW.end(), 0.0);
+  if (exs > 0.0) for (double &v : expW) v /= exs; else std::fill(expW.begin(), expW.end(), 0.0);
+  
+  std::vector<double> plW(k);
+  for (int r = 1; r <= k; ++r) plW[r - 1] = std::pow(static_cast<double>(r), -2.0);
+  double pls = std::accumulate(plW.begin(), plW.end(), 0.0);
+  if (pls > 0.0) for (double &v : plW) v /= pls; else std::fill(plW.begin(), plW.end(), 0.0);
+  
+  std::vector<double> lnormW(k, 0.0);
+  if (k >= 2) {
+    double sdlog = std::sqrt((static_cast<double>(k * k) - 1.0) / 12.0);
+    for (int r = 1; r <= k; ++r) {
+      double lp = pdf_lnorm_log(static_cast<double>(r), 0.0, sdlog);
+      lnormW[r - 1] = std::fabs(lp);
+    }
+    std::reverse(lnormW.begin(), lnormW.end());
+    double lns = std::accumulate(lnormW.begin(), lnormW.end(), 0.0);
+    if (lns > 0.0) for (double &v : lnormW) v /= lns; else std::fill(lnormW.begin(), lnormW.end(), 0.0);
+  }
+  
+  std::vector<double> out(m, 0.0);
+  
+  parallel_for(0, m, [&](std::size_t begin, std::size_t end) {
+    std::vector<double> invR(n), S(l), topS(k), topY(k);
+    std::vector<int> idx(l);
+    
+    for (std::size_t r = begin; r < end; ++r) {
+      for (std::size_t j = 0; j < n; ++j) {
+        double t = at(Xtest, m, r, j);
+        double mn = std::min(minRPM[j], t);
+        double mx = std::max(maxRPM[j], t);
+        double range = mx - mn;
+        invR[j] = (std::isfinite(range) && range > 0.0) ? (1.0 / range) : 0.0;
+      }
+      
+      for (std::size_t i = 0; i < l; ++i) {
+        double acc = 0.0;
+        for (std::size_t j = 0; j < n; ++j) {
+          double a = at(RPM, l, i, j), b = at(Xtest, m, r, j);
+          if (std::isfinite(a) && std::isfinite(b) && invR[j] > 0.0) {
+            double diff = (a - b) * invR[j];
+            acc += diff * diff + std::fabs(diff);
+          }
+        }
+        S[i] = (acc == 0.0 ? 1e-10 : acc);
+      }
+      
+      std::iota(idx.begin(), idx.end(), 0);
+      auto cmp = [&](int a, int b) { return S[a] < S[b]; };
+      if (k < static_cast<int>(l)) std::partial_sort(idx.begin(), idx.begin() + k, idx.end(), cmp);
+      else std::sort(idx.begin(), idx.end(), cmp);
+      
+      auto cmp2 = [&](int a, int b) {
+        if (S[a] < S[b]) return true;
+        if (S[b] < S[a]) return false;
+        return a < b;
+      };
+      std::stable_sort(idx.begin(), idx.begin() + k, cmp2);
+      
+      for (int t = 0; t < k; ++t) { int i = idx[t]; topS[t] = S[i]; topY[t] = yhat[i]; }
+      
+      if (k == 1) { out[r] = topY[0]; continue; }
+      
+      std::vector<double> tw(k, 0.0), emp(k, 0.0), normw(k, 0.0), rbf(k, 0.0);
+      for (int i = 0; i < k; ++i) {
+        tw[i] = pdf_t_prop(topS[i], static_cast<double>(k));
+        emp[i] = (topS[i] > 0.0) ? 1.0 / topS[i] : 0.0;
+      }
+      
+      double tws = std::accumulate(tw.begin(), tw.end(), 0.0);
+      if (tws > 0.0) for (double &v : tw) v /= tws; else std::fill(tw.begin(), tw.end(), 0.0);
+      
+      double emps = std::accumulate(emp.begin(), emp.end(), 0.0);
+      if (emps > 0.0) for (double &v : emp) v /= emps; else std::fill(emp.begin(), emp.end(), 0.0);
+      
+      double sdS = sd_vec(topS);
+      if (std::isfinite(sdS) && sdS > 0.0) {
+        for (int i = 0; i < k; ++i) normw[i] = pdf_norm_prop(topS[i], 0.0, sdS);
+        double ns = std::accumulate(normw.begin(), normw.end(), 0.0);
+        if (ns > 0.0) for (double &v : normw) v /= ns; else std::fill(normw.begin(), normw.end(), 0.0);
+      }
+      
+      double vS = var_vec(topS);
+      if (std::isfinite(vS) && vS > 0.0) {
+        for (int i = 0; i < k; ++i) rbf[i] = std::exp(-topS[i] / (2.0 * vS));
+        double rs = std::accumulate(rbf.begin(), rbf.end(), 0.0);
+        if (rs > 0.0) for (double &v : rbf) v /= rs; else std::fill(rbf.begin(), rbf.end(), 0.0);
+      }
+      
+      double dot = 0.0, tot = 0.0;
+      for (int i = 0; i < k; ++i) {
+        double wi = uniW[i] + expW[i] + lnormW[i] + plW[i] + tw[i] + emp[i] + normw[i] + rbf[i];
+        tot += wi;
+        if (!is_class) dot += topY[i] * wi;
+      }
+      
+      double invTot = (tot > 0.0) ? (1.0 / tot) : (1.0 / static_cast<double>(k));
+      
+      if (!is_class) {
+        out[r] = (tot > 0.0) ? (dot * invTot) : (std::accumulate(topY.begin(), topY.end(), 0.0) / static_cast<double>(k));
+      } else {
+        std::vector<double> w(k);
+        if (tot > 0.0) {
+          for (int i = 0; i < k; ++i) w[i] = (uniW[i] + expW[i] + lnormW[i] + plW[i] + tw[i] + emp[i] + normw[i] + rbf[i]) * invTot;
+        } else {
+          std::fill(w.begin(), w.end(), 1.0 / static_cast<double>(k));
+        }
+        out[r] = mode_class_weighted(topY, w);
+      }
+    }
+  }, nthreads);
+  
+  return out;
+}
+
+} // namespace nns
