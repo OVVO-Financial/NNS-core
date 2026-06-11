@@ -1,0 +1,27 @@
+name: NNS Core CI
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+
+jobs:
+  build-cpp-core:
+    name: C++ Build (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+
+    - name: Configure CMake
+      # Note: Tests and Python are OFF for now until we add those directories in Steps 6 & 7
+      run: cmake -B build -DCMAKE_BUILD_TYPE=Release -DNNSCORE_BUILD_TESTS=OFF -DNNSCORE_BUILD_PYTHON=OFF
+
+    - name: Build Core Library
+      run: cmake --build build --config Release
