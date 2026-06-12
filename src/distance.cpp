@@ -56,8 +56,12 @@ inline double var_vec(const std::vector<double>& v) {
 
 // --- Pure C++ Probability Density Functions (Replaces RMath C-API) ---
 
-inline double pdf_exp(double x, double rate) {
-  return rate * std::exp(-rate * x);
+// Mirrors the R C-API ::Rf_dexp(x, scale, 0): R's C-level dexp is
+// SCALE-parameterized, density = exp(-x/scale)/scale.  All call sites pass
+// 1.0/k exactly as the original Rf_dexp(r, 1.0/k, 0), which therefore
+// evaluates to k * exp(-r * k).
+inline double pdf_exp(double x, double scale) {
+  return std::exp(-x / scale) / scale;
 }
 
 inline double pdf_t_prop(double x, double df) {
@@ -372,7 +376,7 @@ std::vector<double> distance_path_parallel(const double* RPM, std::size_t l, std
     
     std::vector<double> ln(k, 0.0);
     if (k >= 2){
-      double sdlog = std::sqrt((static_cast<double>(k * k) - 1.0) / 12.0);
+      double sdlog = std::sqrt((static_cast<double>(k) * static_cast<double>(k) - 1.0) / 12.0);
       for (int r = 1; r <= k; ++r){ 
         double lp = pdf_lnorm_log(static_cast<double>(r), 0.0, sdlog);
         ln[r-1] = std::fabs(lp); 
@@ -515,7 +519,7 @@ std::vector<double> distance_path_single_parallel(const double* RPM, std::size_t
   
   std::vector<double> lnormW(k, 0.0);
   if (k >= 2) {
-    double sdlog = std::sqrt((static_cast<double>(k * k) - 1.0) / 12.0);
+    double sdlog = std::sqrt((static_cast<double>(k) * static_cast<double>(k) - 1.0) / 12.0);
     for (int r = 1; r <= k; ++r) {
       double lp = pdf_lnorm_log(static_cast<double>(r), 0.0, sdlog);
       lnormW[r - 1] = std::fabs(lp);

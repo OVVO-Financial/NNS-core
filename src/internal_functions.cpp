@@ -312,15 +312,24 @@ std::vector<double> meboot_part(const double* xx, std::size_t m, std::size_t n,
   
   double invn = 1.0 / static_cast<double>(n);
   double edge = static_cast<double>(n - 1) / static_cast<double>(n);
-  
+
+  (void)z_len;  // upstream indexes the tails by the draw count n directly
+
+  // Two independent passes, exactly as upstream NNS.meboot.part: for
+  // degenerate n the high-edge pass overwrites the low-edge assignment.
   for (std::size_t i = 0; i < n; ++i) {
     if (p[i] <= invn) {
       double val = xmin + (p[i] - 0.0) * (z[0] - xmin) / (invn - 0.0);
       if (!reachbnd) val = val + desintxb[0] - 0.5 * (z[0] + xmin);
       q[i] = val;
-    } else if (p[i] >= edge) {
-      double val = z[z_len - 2] + (p[i] - edge) * (xmax - z[z_len - 2]) / (1.0 - edge);
-      if (!reachbnd) val = val + desintxb[m - 1] - 0.5 * (z[z_len - 2] + xmax);
+    }
+  }
+  for (std::size_t i = 0; i < n; ++i) {
+    if (p[i] >= edge) {
+      // Upstream: z[n-2] (the LAST midpoint when length(z) == n-1) and
+      // desintxb[n-1] — both indexed by the draw count n.
+      double val = z[n - 2] + (p[i] - edge) * (xmax - z[n - 2]) / (1.0 - edge);
+      if (!reachbnd) val = val + desintxb[n - 1] - 0.5 * (z[n - 2] + xmax);
       q[i] = val;
     }
   }

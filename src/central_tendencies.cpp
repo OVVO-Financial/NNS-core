@@ -224,9 +224,7 @@ std::vector<double> rescale(const double* x_in, std::size_t n, double a, double 
     }
     
     for (std::size_t i = 0; i < n; ++i) {
-      if (std::isfinite(x_in[i])) {
-        out[i] = a + (b - a) * ((x_in[i] - xmin) / (xmax - xmin));
-      }
+      out[i] = a + (b - a) * ((x_in[i] - xmin) / (xmax - xmin));
     }
     return out;
   }
@@ -259,9 +257,7 @@ std::vector<double> rescale(const double* x_in, std::size_t n, double a, double 
     double theta = std::log(target / mx);
     
     for (std::size_t i = 0; i < n; ++i) {
-      if (std::isfinite(x_in[i])) {
-        out[i] = x_in[i] * std::exp(theta);
-      }
+      out[i] = x_in[i] * std::exp(theta);
     }
     return out;
   }
