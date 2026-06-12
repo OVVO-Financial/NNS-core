@@ -60,9 +60,9 @@ std::vector<int> tsd(const double* X, std::size_t n, std::size_t p, int nthreads
 // --- Stochastic Superiority ---
 
 struct StochSupResult {
-  double p_x_gt_y; // Probability that X > Y
-  double p_x_eq_y; // Probability that X == Y
-  double p_x_lt_y; // Probability that X < Y
+  double p_gt;   // Probability that X > Y
+  double p_tie;  // Probability that X == Y
+  double p_star; // p_gt + 0.5 * p_tie
 };
 
 /// Compute the stochastic superiority of array X over array Y.

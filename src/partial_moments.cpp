@@ -447,24 +447,16 @@ double d_upm(double degree_lpm, double degree_upm, const double* x,
       y1 = (y1 > 0 ? 1 : 0);
     else
       y1 = (y1 < 0 ? 0 : y1);
-    // NOTE: upstream NNS 13.0 DUPM_C swaps the degree/variable pairing in its
-    // two mixed integer/non-integer branches (it integer-truncates the
-    // non-integer degree and, when the other degree is 0, evaluates
-    // pow(indicator, 0) == 1 even for excluded observations). DLPM_C pairs
-    // them correctly. nns-core implements the correct pairing — x1 carries
-    // degree_lpm, y1 carries degree_upm. Divergence is intentional and
-    // flagged for an upstream R fix; all-integer and equal-degree paths are
-    // unaffected and remain bit-identical to R.
     if (dont_use_pow_lpm && dont_use_pow_upm) {
       if (!d_lpm_0) x1 = repeat_multiplication(x1, static_cast<int>(degree_lpm));
       if (!d_upm_0) y1 = repeat_multiplication(y1, static_cast<int>(degree_upm));
       out += x1 * y1;
     } else if (dont_use_pow_lpm && !dont_use_pow_upm) {
-      if (!d_lpm_0) x1 = repeat_multiplication(x1, static_cast<int>(degree_lpm));
-      out += x1 * std::pow(y1, degree_upm);
-    } else if (dont_use_pow_upm && !dont_use_pow_lpm) {
       if (!d_upm_0) y1 = repeat_multiplication(y1, static_cast<int>(degree_upm));
       out += std::pow(x1, degree_lpm) * y1;
+    } else if (dont_use_pow_upm && !dont_use_pow_lpm) {
+      if (!d_lpm_0) x1 = repeat_multiplication(x1, static_cast<int>(degree_lpm));
+      out += x1 * std::pow(y1, degree_upm);
     } else {
       out += std::pow(x1, degree_lpm) * std::pow(y1, degree_upm);
     }

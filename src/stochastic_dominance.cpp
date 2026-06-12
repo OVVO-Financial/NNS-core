@@ -1,6 +1,6 @@
 // src/stochastic_dominance.cpp
 //
-// Implementation extracted from NNS 13.0. Decoupled from Rcpp.
+// Implementation reconstructed from original_src/SD.cpp and original_src/stoch_sup.cpp; covers FSD/SSD/TSD and stochastic superiority. Decoupled from Rcpp.
 //
 // SPDX-License-Identifier: GPL-3.0-only
 #include "nns/stochastic_dominance.hpp"
@@ -303,14 +303,11 @@ StochSupResult stochastic_superiority(const double* x, std::size_t n_x,
   
   const long double denom = static_cast<long double>(n_x) * static_cast<long double>(n_y);
   
-  double p_x_gt_y = static_cast<double>(less_count / denom);
-  double p_x_eq_y = static_cast<double>(tie_count / denom);
-  double p_x_lt_y = 1.0 - p_x_gt_y - p_x_eq_y;
+  const double p_gt = static_cast<double>(less_count / denom);
+  const double p_tie = static_cast<double>(tie_count / denom);
+  const double p_star = p_gt + 0.5 * p_tie;
   
-  // Correct tiny floating-point drift if probabilities exceed bounds
-  if (p_x_lt_y < 0.0) p_x_lt_y = 0.0;
-  
-  return {p_x_gt_y, p_x_eq_y, p_x_lt_y};
+  return {p_gt, p_tie, p_star};
 }
 
 } // namespace nns

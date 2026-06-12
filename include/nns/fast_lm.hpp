@@ -11,34 +11,24 @@ namespace nns {
 
 struct FastLmResult {
   std::vector<double> coef;          // length 2: [intercept, slope]
-  std::vector<double> fitted_values; // length n
-  std::vector<double> residuals;     // length n
-  int df_residual;
+  std::vector<double> fitted_values; // original `fitted.values`
+  std::vector<double> residuals;
+  long long df_residual;             // original `df.residual = n - 2`
 };
 
 struct FastLmMultResult {
-  std::vector<double> coefficients;  // length p + 1 (intercept + slopes)
-  std::vector<double> fitted_values; // length n
-  std::vector<double> residuals;     // length n
+  std::vector<double> coefficients;  // intercept then slopes
+  std::vector<double> fitted_values;
+  std::vector<double> residuals;
   double r_squared;
 };
 
-/// Fast univariate ordinary least squares
-///
-/// @param x Pointer to the predictor array.
-/// @param y Pointer to the response array.
-/// @param n Length of the arrays.
-/// @return FastLmResult struct containing coefficients, fitted values, and residuals.
-FastLmResult fast_lm(const double* x, const double* y, std::size_t n);
+FastLmResult fast_lm(const double* x, const double* y,
+                     std::size_t n_x, std::size_t n_y);
 
-/// Fast multivariate ordinary least squares
-///
-/// @param X Pointer to the column-major predictor matrix (n x p).
-/// @param y Pointer to the response array.
-/// @param n Number of rows in X.
-/// @param p Number of columns in X.
-/// @return FastLmMultResult struct containing coefficients, fitted values, residuals, and R^2.
-FastLmMultResult fast_lm_mult(const double* X, const double* y, std::size_t n, std::size_t p);
+/// Multiple OLS. X is an n x p column-major matrix, matching R NumericMatrix.
+FastLmMultResult fast_lm_mult(const double* X, std::size_t n, std::size_t p,
+                              const double* y, std::size_t n_y);
 
 } // namespace nns
 

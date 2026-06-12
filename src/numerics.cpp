@@ -1,5 +1,9 @@
 // src/numerics.cpp
 //
+// Pure C++ reconstruction from original_src/internal_functions.cpp; covers
+// discrete checks, vector generators, ARMA seasonal weighting, meboot helpers,
+// force_clt, and class sampling utilities.
+//
 // SPDX-License-Identifier: GPL-3.0-only
 #include "nns/numerics.hpp"
 

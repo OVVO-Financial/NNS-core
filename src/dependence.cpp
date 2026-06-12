@@ -10,6 +10,7 @@
 #include <cmath>
 #include <limits>
 #include <numeric>
+#include <stdexcept>
 #include <unordered_map>
 #include <vector>
 
