@@ -1,16 +1,19 @@
-// src/seasonality.cpp
+// src/fast_lm.cpp
 //
-// Implementation extracted from NNS 13.0 NNS_seas.cpp. Decoupled from Rcpp.
+// Pure C++ port of NNS 13.0 fast_lm.cpp. Decoupled from Rcpp.
+//
+// This file preserves the numerical rules and return payloads of the original
+// Rcpp functions:
+//   fast_lm      -> coef, residuals, fitted.values, df.residual
+//   fast_lm_mult -> coefficients, fitted.values, residuals, r.squared
 //
 // SPDX-License-Identifier: GPL-3.0-only
-#include "nns/seasonality.hpp"
+#include "nns/fast_lm.hpp"
 
-#include <algorithm>
 #include <cmath>
 #include <limits>
-#include <numeric>
-#include <set>
 #include <stdexcept>
+#include <string>
 #include <vector>
 
 namespace nns {
@@ -18,307 +21,232 @@ namespace nns {
 namespace {
 
 constexpr double kNaN = std::numeric_limits<double>::quiet_NaN();
-constexpr double kInf = std::numeric_limits<double>::infinity();
 
-inline bool any_na_or_inf(const double* x, std::size_t n) {
-  for (std::size_t i = 0; i < n; ++i) {
-    if (!std::isfinite(x[i])) return true;
-  }
-  return false;
+inline bool is_pos(double x) {
+  return x > 0.0 && std::isfinite(x);
 }
 
-inline double vec_mean(const std::vector<double>& x) {
-  if (x.empty()) return kNaN;
+inline double at(const double* M, std::size_t rows, std::size_t r, std::size_t c) {
+  return M[c * rows + r];
+}
+
+inline double design_value(const double* x, std::size_t n, std::size_t row,
+                           std::size_t col_with_intercept) {
+  return (col_with_intercept == 0) ? 1.0 : at(x, n, row, col_with_intercept - 1U);
+}
+
+inline double mean_vec(const double* x, std::size_t n) {
+  if (n == 0U) return kNaN;
   double s = 0.0;
-  for (double val : x) s += val;
-  return s / static_cast<double>(x.size());
+  for (std::size_t i = 0; i < n; ++i) s += x[i];
+  return s / static_cast<double>(n);
 }
 
-inline double vec_sd(const std::vector<double>& x) {
-  std::size_t n = x.size();
-  if (n < 2) return kNaN;
-  double m = vec_mean(x);
-  double ss = 0.0;
-  for (double val : x) {
-    double d = val - m;
-    ss += d * d;
-  }
-  return std::sqrt(ss / static_cast<double>(n - 1));
+std::string dim_msg(const char* prefix, std::size_t a, std::size_t b) {
+  return std::string(prefix) + " (got " + std::to_string(static_cast<unsigned long long>(a)) +
+         " vs " + std::to_string(static_cast<unsigned long long>(b)) + ").";
 }
 
-// lag-1 Pearson autocorrelation
-inline double acf1(const std::vector<double>& x) {
-  std::size_t n = x.size();
-  if (n < 2) return kNaN;
-  double m = vec_mean(x);
-  double num = 0.0;
-  double den = 0.0;
-  for (std::size_t t = 1; t < n; ++t) num += (x[t] - m) * (x[t - 1] - m);
-  for (std::size_t t = 0; t < n; ++t) { 
-    double d = x[t] - m; 
-    den += d * d; 
+// Cholesky decomposition of a symmetric positive-definite matrix A.
+// A is column-major n x n. Returns lower triangular L such that A = L * L^T.
+std::vector<double> cholesky_decomposition(const std::vector<double>& A, std::size_t n) {
+  if (A.size() != n * n) {
+    throw std::invalid_argument("cholesky_decomposition: matrix must be square.");
   }
-  if (den == 0.0) return kNaN;
-  return num / den;
+
+  std::vector<double> L(n * n, 0.0);
+
+  for (std::size_t i = 0; i < n; ++i) {
+    double sum = A[i * n + i];
+    for (std::size_t k = 0; k < i; ++k) {
+      sum -= L[k * n + i] * L[k * n + i];
+    }
+    if (!is_pos(sum)) {
+      throw std::runtime_error(
+          "cholesky_decomposition: matrix not positive-definite (nonpositive pivot at " +
+          std::to_string(static_cast<unsigned long long>(i + 1U)) + ").");
+    }
+    L[i * n + i] = std::sqrt(sum);
+
+    const double Lii = L[i * n + i];
+    for (std::size_t j = i + 1U; j < n; ++j) {
+      double s = A[i * n + j];
+      for (std::size_t k = 0; k < i; ++k) {
+        s -= L[k * n + j] * L[k * n + i];
+      }
+      L[i * n + j] = s / Lii;
+    }
+  }
+
+  return L;
 }
 
-inline double cv_or_fallback(const std::vector<double>& x, bool use_cv, double var_cov) {
-  std::size_t n = x.size();
-  if (n < 2) return var_cov;
-  double z;
-  if (use_cv) {
-    double m = vec_mean(x);
-    double s = vec_sd(x);
-    z = std::fabs(s / m);
-  } else {
-    double a1 = acf1(x);
-    if (!std::isfinite(a1)) return var_cov;
-    z = std::pow(std::fabs(a1), -1.0);
+// Solve L * z = b, where L is lower triangular in column-major storage.
+std::vector<double> forward_substitution(const std::vector<double>& L,
+                                         const std::vector<double>& b,
+                                         std::size_t n) {
+  if (b.size() != n || L.size() != n * n) {
+    throw std::invalid_argument("forward_substitution: incompatible dimensions.");
   }
-  if (!std::isfinite(z)) return var_cov;
+
+  std::vector<double> z(n, 0.0);
+  for (std::size_t i = 0; i < n; ++i) {
+    double sum = b[i];
+    for (std::size_t j = 0; j < i; ++j) {
+      sum -= L[j * n + i] * z[j];
+    }
+    const double Lii = L[i * n + i];
+    if (Lii == 0.0 || !std::isfinite(Lii)) {
+      throw std::runtime_error("forward_substitution: singular pivot.");
+    }
+    z[i] = sum / Lii;
+  }
   return z;
 }
 
-// 0-based indices stepping backwards
-inline std::vector<int> rev_step_indices(int n, int step) {
-  int len = (n - 1) / step + 1;
-  std::vector<int> out(len);
-  int v = n - 1; // 0-based max index
-  for (int k = 0; k < len; ++k, v -= step) out[k] = v;
-  return out;
+// Solve L^T * x = z, where L is lower triangular in column-major storage.
+std::vector<double> back_substitution(const std::vector<double>& L,
+                                      const std::vector<double>& z,
+                                      std::size_t n) {
+  if (z.size() != n || L.size() != n * n) {
+    throw std::invalid_argument("back_substitution: incompatible dimensions.");
+  }
+
+  std::vector<double> x(n, 0.0);
+  for (std::size_t ii = n; ii-- > 0U;) {
+    double sum = z[ii];
+    for (std::size_t j = ii + 1U; j < n; ++j) {
+      // L^T(ii, j) = L(j, ii).
+      sum -= L[ii * n + j] * x[j];
+    }
+    const double Lii = L[ii * n + ii];
+    if (Lii == 0.0 || !std::isfinite(Lii)) {
+      throw std::runtime_error("back_substitution: singular pivot.");
+    }
+    x[ii] = sum / Lii;
+  }
+  return x;
 }
 
-inline std::vector<double> take_by_index(const std::vector<double>& x, const std::vector<int>& idx) {
-  std::size_t m = idx.size();
-  std::vector<double> out(m);
-  for (std::size_t i = 0; i < m; ++i) {
-    int j = idx[i];
-    out[i] = (j >= 0 && j < static_cast<int>(x.size())) ? x[j] : kNaN;
-  }
-  return out;
-}
+}  // namespace
 
-} // namespace
-
-// ---------- Core Seasonality API ----------
-
-SeasonalityResult seasonality(const double* x, std::size_t n,
-                              const int* modulo, std::size_t mod_len,
-                              bool mod_only) {
-                              
-  if (n == 0) throw std::invalid_argument("Variable must be numeric and non-empty");
-  if (any_na_or_inf(x, n)) throw std::invalid_argument("You have some missing or infinite values, please address.");
-
-  if (n < 5) {
-    return {
-      {0}, {0.0}, {0.0}, // all.periods (DataFrame cols)
-      0,                 // best.period
-      {}                 // periods
-    };
+FastLmResult fast_lm(const double* x, const double* y, std::size_t n_x, std::size_t n_y) {
+  if (n_x != n_y) {
+    throw std::invalid_argument(dim_msg("fast_lm: length(x) != length(y)", n_x, n_y));
   }
 
-  std::vector<double> variable(x, x + n);
-  std::vector<double> variable_1(x, x + n - 1);
-  std::vector<double> variable_2;
-  if (n - 1 >= 2) variable_2.assign(x, x + n - 2);
+  const double mean_x = mean_vec(x, n_x);
+  const double mean_y = mean_vec(y, n_y);
 
-  const int half_n = static_cast<int>(n) / 2;
-  const double mean_var = vec_mean(variable);
-  const bool use_cv = (mean_var != 0.0);
-  
-  double var_cov = use_cv ? std::fabs(vec_sd(variable) / mean_var) : std::pow(std::fabs(acf1(variable)), -1.0);
-  if (!std::isfinite(var_cov)) var_cov = kInf;
-
-  std::vector<double> out(half_n), out1(half_n), out2(half_n);
-  std::vector<int> inst(half_n, 0), inst1(half_n, 0), inst2(half_n, 0);
-
-  const int n1 = static_cast<int>(n) - 1;
-  const int n2 = static_cast<int>(variable_2.size());
-
-  for (int i = 1; i <= half_n; ++i) {
-    std::vector<int> idx  = rev_step_indices(static_cast<int>(n), i);
-    std::vector<int> idx1 = rev_step_indices(n1, i);
-    std::vector<int> idx2 = (n2 > 0) ? rev_step_indices(n2, i) : std::vector<int>();
-
-    double t  = cv_or_fallback(take_by_index(variable, idx), use_cv, var_cov);
-    double t1 = cv_or_fallback(take_by_index(variable_1, idx1), use_cv, var_cov);
-    double t2 = cv_or_fallback(take_by_index(variable_2, idx2), use_cv, var_cov);
-
-    if (t  <= var_cov) { inst[i - 1]  = i; out[i - 1]  = t;  }
-    if (t1 <= var_cov) { inst1[i - 1] = i; out1[i - 1] = t1; }
-    if (t2 <= var_cov) { inst2[i - 1] = i; out2[i - 1] = t2; }
+  double var_x = 0.0;
+  double cov_xy = 0.0;
+  for (std::size_t i = 0; i < n_x; ++i) {
+    const double dx = x[i] - mean_x;
+    const double dy = y[i] - mean_y;
+    var_x += dx * dx;
+    cov_xy += dx * dy;
   }
 
-  std::vector<int> periods_vec;
-  std::vector<double> cvmean_vec;
-  for (int i = 0; i < half_n; ++i) {
-    if (inst[i] > 0 && inst1[i] > 0 && inst2[i] > 0) {
-      periods_vec.push_back(inst[i]);
-      cvmean_vec.push_back((out[i] + out1[i] + out2[i]) / 3.0);
+  FastLmResult out;
+  out.coef.assign(2U, 0.0);
+  out.fitted_values.assign(n_y, kNaN);
+  out.residuals.assign(n_y, kNaN);
+
+  if (var_x == 0.0) {
+    // Original behavior: all x identical -> slope = 0, intercept = mean(y).
+    out.coef[0] = mean_y;
+    out.coef[1] = 0.0;
+
+    for (std::size_t i = 0; i < n_y; ++i) {
+      out.fitted_values[i] = mean_y;
+      out.residuals[i] = y[i] - mean_y;
     }
-  }
-
-  std::vector<int> Period;
-  std::vector<double> CoefVar;
-  std::vector<double> VarCoefVar;
-
-  if (!periods_vec.empty()) {
-    int m = static_cast<int>(periods_vec.size());
-    Period = periods_vec;
-    CoefVar = cvmean_vec;
-    VarCoefVar.assign(m, var_cov);
-
-    std::vector<int> ord(m);
-    std::iota(ord.begin(), ord.end(), 0);
-    std::sort(ord.begin(), ord.end(), [&](int a, int b) { return CoefVar[a] < CoefVar[b]; });
-
-    std::vector<int> sortedP(m);
-    std::vector<double> sortedCV(m);
-    for (int k = 0; k < m; ++k) {
-      sortedP[k] = Period[ord[k]];
-      sortedCV[k] = CoefVar[ord[k]];
-    }
-    Period = std::move(sortedP);
-    CoefVar = std::move(sortedCV);
   } else {
-    Period = {1};
-    CoefVar = {var_cov};
-    VarCoefVar = {var_cov};
-  }
+    const double slope = cov_xy / var_x;
+    const double intercept = mean_y - slope * mean_x;
 
-  // Modulo Handling
-  if (modulo != nullptr && mod_len > 0) {
-    std::set<int> per_set;
-    for (std::size_t i = 0; i < Period.size(); ++i) {
-      for (std::size_t j = 0; j < mod_len; ++j) {
-        int m_val = modulo[j];
-        if (m_val <= 0) continue;
-        int minus = Period[i] - (Period[i] % m_val);
-        int plus  = Period[i] + (m_val - (Period[i] % m_val));
-        if (minus > 0) per_set.insert(minus);
-        if (plus > 0) per_set.insert(plus);
-      }
-    }
+    out.coef[0] = intercept;
+    out.coef[1] = slope;
 
-    if (mod_only) {
-      std::set<int> curr(Period.begin(), Period.end());
-      std::vector<int> keptP;
-      std::vector<double> keptCV;
-
-      for (std::size_t i = 0; i < Period.size(); ++i) {
-        if (per_set.count(Period[i])) {
-          keptP.push_back(Period[i]);
-          keptCV.push_back(CoefVar[i]);
-        }
-      }
-      for (int s : per_set) {
-        if (!curr.count(s)) {
-          keptP.push_back(s);
-          keptCV.push_back(var_cov);
-        }
-      }
-
-      if (keptP.empty()) {
-        Period = {1};
-        CoefVar = {var_cov};
-        VarCoefVar = {var_cov};
-      } else {
-        int m = static_cast<int>(keptP.size());
-        Period = keptP;
-        CoefVar = keptCV;
-        VarCoefVar.assign(m, var_cov);
-
-        std::vector<int> ord(m);
-        std::iota(ord.begin(), ord.end(), 0);
-        std::sort(ord.begin(), ord.end(), [&](int a, int b) { return CoefVar[a] < CoefVar[b]; });
-
-        std::vector<int> sortedP(m);
-        std::vector<double> sortedCV(m);
-        for (int k = 0; k < m; ++k) {
-          sortedP[k] = Period[ord[k]];
-          sortedCV[k] = CoefVar[ord[k]];
-        }
-        Period = std::move(sortedP);
-        CoefVar = std::move(sortedCV);
-      }
-    } else {
-      per_set.insert(1);
-      std::set<int> curr(Period.begin(), Period.end());
-      std::vector<int> add;
-      for (int s : per_set) {
-        if (!curr.count(s)) add.push_back(s);
-      }
-
-      if (!add.empty()) {
-        for (int a : add) {
-          Period.push_back(a);
-          CoefVar.push_back(var_cov);
-          VarCoefVar.push_back(var_cov);
-        }
-
-        int m = static_cast<int>(Period.size());
-        std::vector<int> ord(m);
-        std::iota(ord.begin(), ord.end(), 0);
-        std::sort(ord.begin(), ord.end(), [&](int a, int b) { return CoefVar[a] < CoefVar[b]; });
-
-        std::vector<int> sortedP(m);
-        std::vector<double> sortedCV(m);
-        for (int k = 0; k < m; ++k) {
-          sortedP[k] = Period[ord[k]];
-          sortedCV[k] = CoefVar[ord[k]];
-        }
-        Period = std::move(sortedP);
-        CoefVar = std::move(sortedCV);
-      }
+    for (std::size_t i = 0; i < n_y; ++i) {
+      out.fitted_values[i] = intercept + slope * x[i];
+      out.residuals[i] = y[i] - out.fitted_values[i];
     }
   }
 
-  // Strict cap: Period < n/2
-  {
-    std::vector<int> P;
-    std::vector<double> CV;
-    std::vector<double> VCV;
-    for (std::size_t i = 0; i < Period.size(); ++i) {
-      if (Period[i] < static_cast<int>(n) / 2) {
-        P.push_back(Period[i]);
-        CV.push_back(CoefVar[i]);
-        VCV.push_back(VarCoefVar[i]);
-      }
-    }
-
-    if (!P.empty()) {
-      int m = static_cast<int>(P.size());
-      Period = P;
-      CoefVar = CV;
-      VarCoefVar = VCV;
-
-      std::vector<int> ord(m);
-      std::iota(ord.begin(), ord.end(), 0);
-      std::sort(ord.begin(), ord.end(), [&](int a, int b) { return CoefVar[a] < CoefVar[b]; });
-
-      std::vector<int> sortedP(m);
-      std::vector<double> sortedCV(m);
-      for (int k = 0; k < m; ++k) {
-        sortedP[k] = Period[ord[k]];
-        sortedCV[k] = CoefVar[ord[k]];
-      }
-      Period = std::move(sortedP);
-      CoefVar = std::move(sortedCV);
-    } else {
-      Period = {1};
-      CoefVar = {var_cov};
-      VarCoefVar = {var_cov};
-    }
-  }
-
-  SeasonalityResult res;
-  res.all_periods = Period;
-  res.all_coef_var = CoefVar;
-  res.all_var_coef_var = VarCoefVar;
-  res.best_period = Period.empty() ? 0 : Period[0];
-  res.periods = Period;
-
-  return res;
+  // Match original integer rule: ny - 2, even for short inputs.
+  out.df_residual = static_cast<long long>(n_y) - 2LL;
+  return out;
 }
 
-} // namespace nns
+FastLmMultResult fast_lm_mult(const double* x, std::size_t n, std::size_t p,
+                              const double* y, std::size_t n_y) {
+  if (n == 0U) {
+    throw std::invalid_argument("fast_lm_mult: 'x' has zero rows.");
+  }
+  if (p == 0U) {
+    throw std::invalid_argument("fast_lm_mult: 'x' has zero columns.");
+  }
+  if (n_y != n) {
+    throw std::invalid_argument(dim_msg("fast_lm_mult: length(y) != nrow(x)", n_y, n));
+  }
+
+  const std::size_t q = p + 1U;
+
+  // Compute X'X and X'y for the design matrix [1, x].  Storage is column-major,
+  // matching R's NumericMatrix memory layout and the rest of the rendered core.
+  std::vector<double> XtX(q * q, 0.0);
+  std::vector<double> Xty(q, 0.0);
+
+  for (std::size_t i = 0; i < q; ++i) {
+    for (std::size_t j = 0; j <= i; ++j) {
+      double s = 0.0;
+      for (std::size_t k = 0; k < n; ++k) {
+        s += design_value(x, n, k, i) * design_value(x, n, k, j);
+      }
+      XtX[j * q + i] = s;
+      if (i != j) XtX[i * q + j] = s;
+    }
+
+    double sy = 0.0;
+    for (std::size_t k = 0; k < n; ++k) {
+      sy += design_value(x, n, k, i) * y[k];
+    }
+    Xty[i] = sy;
+  }
+
+  const std::vector<double> L = cholesky_decomposition(XtX, q);
+  const std::vector<double> z = forward_substitution(L, Xty, q);
+  std::vector<double> coef = back_substitution(L, z, q);
+
+  std::vector<double> fitted_values(n, 0.0);
+  for (std::size_t i = 0; i < n; ++i) {
+    double s = 0.0;
+    for (std::size_t j = 0; j < q; ++j) {
+      s += coef[j] * design_value(x, n, i, j);
+    }
+    fitted_values[i] = s;
+  }
+
+  std::vector<double> residuals(n, 0.0);
+  for (std::size_t i = 0; i < n; ++i) residuals[i] = y[i] - fitted_values[i];
+
+  const double y_mean = mean_vec(y, n_y);
+  double TSS = 0.0;
+  double RSS = 0.0;
+  for (std::size_t i = 0; i < n; ++i) {
+    const double dy = y[i] - y_mean;
+    TSS += dy * dy;
+    const double re = residuals[i];
+    RSS += re * re;
+  }
+
+  FastLmMultResult out;
+  out.coefficients = std::move(coef);
+  out.fitted_values = std::move(fitted_values);
+  out.residuals = std::move(residuals);
+  out.r_squared = (TSS == 0.0) ? kNaN : (1.0 - RSS / TSS);
+  return out;
+}
+
+}  // namespace nns
