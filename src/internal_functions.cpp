@@ -1,14 +1,15 @@
-// src/numerics.cpp
+// src/internal_functions.cpp
 //
 // Pure C++ reconstruction from original_src/internal_functions.cpp; covers
 // discrete checks, vector generators, ARMA seasonal weighting, meboot helpers,
 // force_clt, and class sampling utilities.
 //
 // SPDX-License-Identifier: GPL-3.0-only
-#include "nns/numerics.hpp"
+#include "nns/internal_functions.hpp"
 
 #include <algorithm>
 #include <cmath>
+#include <limits>
 #include <map>
 #include <numeric>
 #include <random>
@@ -22,20 +23,133 @@ namespace {
     return M[c * rows + r];
   }
 
-  // Gaussian CDF inverse approximation for CLT
+  // High-accuracy deterministic pure-C++ substitute for R::qnorm used by
+  // original force.clt.  Uses Peter J. Acklam's rational approximation; tails
+  // return infinities at p <= 0 and p >= 1, matching normal-quantile tails.
   double qnorm_approx(double p) {
-    // A standard rational approximation for the inverse normal CDF
-    if (p <= 0.0) return -8.0;
-    if (p >= 1.0) return 8.0;
-    double c0 = 2.515517, c1 = 0.802853, c2 = 0.010328;
-    double d1 = 1.432788, d2 = 0.189269, d3 = 0.001308;
-    double t = std::sqrt(-2.0 * std::log(std::min(p, 1.0 - p)));
-    double val = t - ((c2 * t + c1) * t + c0) / (((d3 * t + d2) * t + d1) * t + 1.0);
-    return (p < 0.5) ? -val : val;
+    if (p <= 0.0) return -std::numeric_limits<double>::infinity();
+    if (p >= 1.0) return std::numeric_limits<double>::infinity();
+
+    static constexpr double a[] = {
+        -3.969683028665376e+01, 2.209460984245205e+02,
+        -2.759285104469687e+02, 1.383577518672690e+02,
+        -3.066479806614716e+01, 2.506628277459239e+00};
+    static constexpr double b[] = {
+        -5.447609879822406e+01, 1.615858368580409e+02,
+        -1.556989798598866e+02, 6.680131188771972e+01,
+        -1.328068155288572e+01};
+    static constexpr double c[] = {
+        -7.784894002430293e-03, -3.223964580411365e-01,
+        -2.400758277161838e+00, -2.549732539343734e+00,
+        4.374664141464968e+00, 2.938163982698783e+00};
+    static constexpr double d[] = {
+        7.784695709041462e-03, 3.224671290700398e-01,
+        2.445134137142996e+00, 3.754408661907416e+00};
+    static constexpr double plow = 0.02425;
+    static constexpr double phigh = 1.0 - plow;
+
+    if (p < plow) {
+      const double q = std::sqrt(-2.0 * std::log(p));
+      return (((((c[0] * q + c[1]) * q + c[2]) * q + c[3]) * q + c[4]) *
+                  q +
+              c[5]) /
+             ((((d[0] * q + d[1]) * q + d[2]) * q + d[3]) * q + 1.0);
+    }
+    if (p > phigh) {
+      const double q = std::sqrt(-2.0 * std::log(1.0 - p));
+      return -(((((c[0] * q + c[1]) * q + c[2]) * q + c[3]) * q +
+                 c[4]) *
+                    q +
+                c[5]) /
+             ((((d[0] * q + d[1]) * q + d[2]) * q + d[3]) * q + 1.0);
+    }
+
+    const double q = p - 0.5;
+    const double r = q * q;
+    return (((((a[0] * r + a[1]) * r + a[2]) * r + a[3]) * r + a[4]) * r +
+            a[5]) *
+           q /
+           (((((b[0] * r + b[1]) * r + b[2]) * r + b[3]) * r + b[4]) *
+                r +
+            1.0);
   }
 }
 
 // ---------- Basic Utilities ----------
+
+
+bool is_fcl(ValueKind kind) {
+  return kind == ValueKind::Factor || kind == ValueKind::String ||
+         kind == ValueKind::Logical;
+}
+
+namespace {
+std::size_t present_level_count(const Factor& factor) {
+  std::vector<char> seen(factor.levels.size() + 1U, 0);
+  for (int code : factor.codes) {
+    if (code > 0 && static_cast<std::size_t>(code) <= factor.levels.size()) {
+      seen[static_cast<std::size_t>(code)] = 1;
+    }
+  }
+  std::size_t count = 0;
+  for (std::size_t k = 1; k < seen.size(); ++k) count += seen[k];
+  return count;
+}
+}
+
+DummyMatrix factor_2_dummy(const Factor& factor) {
+  const std::size_t n = factor.codes.size();
+  const std::size_t levels = factor.levels.size();
+  if (present_level_count(factor) <= 1U) {
+    DummyMatrix out;
+    out.nrow = n;
+    out.ncol = 1U;
+    out.names = {""};
+    out.data.resize(n);
+    for (std::size_t i = 0; i < n; ++i) out.data[i] = static_cast<double>(factor.codes[i]);
+    return out;
+  }
+
+  DummyMatrix out;
+  out.nrow = n;
+  out.ncol = levels > 0U ? levels - 1U : 0U;
+  out.data.assign(out.nrow * out.ncol, 0.0);
+  if (levels > 1U) out.names.assign(factor.levels.begin() + 1, factor.levels.end());
+  for (std::size_t i = 0; i < n; ++i) {
+    const int code = factor.codes[i];
+    if (code > 1 && static_cast<std::size_t>(code) <= levels) {
+      out.data[static_cast<std::size_t>(code - 2) * n + i] = 1.0;
+    }
+  }
+  return out;
+}
+
+DummyMatrix factor_2_dummy_fr(const Factor& factor) {
+  const std::size_t n = factor.codes.size();
+  const std::size_t levels = factor.levels.size();
+  if (present_level_count(factor) <= 1U) {
+    DummyMatrix out;
+    out.nrow = n;
+    out.ncol = 1U;
+    out.names = {""};
+    out.data.resize(n);
+    for (std::size_t i = 0; i < n; ++i) out.data[i] = static_cast<double>(factor.codes[i]);
+    return out;
+  }
+
+  DummyMatrix out;
+  out.nrow = n;
+  out.ncol = levels;
+  out.names = factor.levels;
+  out.data.assign(out.nrow * out.ncol, 0.0);
+  for (std::size_t i = 0; i < n; ++i) {
+    const int code = factor.codes[i];
+    if (code != 0 && code > 0 && static_cast<std::size_t>(code) <= levels) {
+      out.data[static_cast<std::size_t>(code - 1) * n + i] = 1.0;
+    }
+  }
+  return out;
+}
 
 double vec_sd(const double* x, std::size_t n) {
   if (n <= 1) return std::numeric_limits<double>::quiet_NaN();

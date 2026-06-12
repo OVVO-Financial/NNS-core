@@ -18,7 +18,7 @@ add_library(nnscore
     src/dependence.cpp
     src/seasonality.cpp
     src/fast_lm.cpp
-    src/numerics.cpp
+    src/internal_functions.cpp
 )
 
 # Set the public include directories so consumers can `#include "nns/nns.hpp"`
@@ -38,7 +38,7 @@ target_link_libraries(nnscore PUBLIC Threads::Threads)
 option(NNSCORE_BUILD_TESTS "Build Catch2 unit and conformance tests" ON)
 option(NNSCORE_BUILD_PYTHON "Build Python bindings via nanobind" OFF)
 
-if(NNSCORE_BUILD_TESTS)
+if(NNSCORE_BUILD_TESTS AND EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/cpp/CMakeLists.txt")
     enable_testing()
     add_subdirectory(tests/cpp)
 endif()
