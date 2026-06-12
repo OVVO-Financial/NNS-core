@@ -17,6 +17,6 @@
 #include "nns/dependence.hpp"
 #include "nns/seasonality.hpp"
 #include "nns/fast_lm.hpp"
-#include "nns/numerics.hpp"
+#include "nns/internal_functions.hpp"
 
 #endif // NNS_UMBRELLA_HPP

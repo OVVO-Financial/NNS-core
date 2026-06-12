@@ -23,12 +23,11 @@ struct FastLmMultResult {
   double r_squared;
 };
 
-FastLmResult fast_lm(const double* x, const double* y,
-                     std::size_t n_x, std::size_t n_y);
+FastLmResult fast_lm(const double* x, const double* y, std::size_t n);
 
 /// Multiple OLS. X is an n x p column-major matrix, matching R NumericMatrix.
-FastLmMultResult fast_lm_mult(const double* X, std::size_t n, std::size_t p,
-                              const double* y, std::size_t n_y);
+FastLmMultResult fast_lm_mult(const double* X, const double* y,
+                              std::size_t n, std::size_t p);
 
 } // namespace nns
 

@@ -130,17 +130,13 @@ std::vector<double> back_substitution(const std::vector<double>& L,
 
 }  // namespace
 
-FastLmResult fast_lm(const double* x, const double* y, std::size_t n_x, std::size_t n_y) {
-  if (n_x != n_y) {
-    throw std::invalid_argument(dim_msg("fast_lm: length(x) != length(y)", n_x, n_y));
-  }
-
-  const double mean_x = mean_vec(x, n_x);
-  const double mean_y = mean_vec(y, n_y);
+FastLmResult fast_lm(const double* x, const double* y, std::size_t n) {
+  const double mean_x = mean_vec(x, n);
+  const double mean_y = mean_vec(y, n);
 
   double var_x = 0.0;
   double cov_xy = 0.0;
-  for (std::size_t i = 0; i < n_x; ++i) {
+  for (std::size_t i = 0; i < n; ++i) {
     const double dx = x[i] - mean_x;
     const double dy = y[i] - mean_y;
     var_x += dx * dx;
@@ -149,15 +145,15 @@ FastLmResult fast_lm(const double* x, const double* y, std::size_t n_x, std::siz
 
   FastLmResult out;
   out.coef.assign(2U, 0.0);
-  out.fitted_values.assign(n_y, kNaN);
-  out.residuals.assign(n_y, kNaN);
+  out.fitted_values.assign(n, kNaN);
+  out.residuals.assign(n, kNaN);
 
   if (var_x == 0.0) {
     // Original behavior: all x identical -> slope = 0, intercept = mean(y).
     out.coef[0] = mean_y;
     out.coef[1] = 0.0;
 
-    for (std::size_t i = 0; i < n_y; ++i) {
+    for (std::size_t i = 0; i < n; ++i) {
       out.fitted_values[i] = mean_y;
       out.residuals[i] = y[i] - mean_y;
     }
@@ -168,29 +164,25 @@ FastLmResult fast_lm(const double* x, const double* y, std::size_t n_x, std::siz
     out.coef[0] = intercept;
     out.coef[1] = slope;
 
-    for (std::size_t i = 0; i < n_y; ++i) {
+    for (std::size_t i = 0; i < n; ++i) {
       out.fitted_values[i] = intercept + slope * x[i];
       out.residuals[i] = y[i] - out.fitted_values[i];
     }
   }
 
   // Match original integer rule: ny - 2, even for short inputs.
-  out.df_residual = static_cast<long long>(n_y) - 2LL;
+  out.df_residual = static_cast<long long>(n) - 2LL;
   return out;
 }
 
-FastLmMultResult fast_lm_mult(const double* x, std::size_t n, std::size_t p,
-                              const double* y, std::size_t n_y) {
+FastLmMultResult fast_lm_mult(const double* x, const double* y,
+                              std::size_t n, std::size_t p) {
   if (n == 0U) {
     throw std::invalid_argument("fast_lm_mult: 'x' has zero rows.");
   }
   if (p == 0U) {
     throw std::invalid_argument("fast_lm_mult: 'x' has zero columns.");
   }
-  if (n_y != n) {
-    throw std::invalid_argument(dim_msg("fast_lm_mult: length(y) != nrow(x)", n_y, n));
-  }
-
   const std::size_t q = p + 1U;
 
   // Compute X'X and X'y for the design matrix [1, x].  Storage is column-major,
@@ -231,7 +223,7 @@ FastLmMultResult fast_lm_mult(const double* x, std::size_t n, std::size_t p,
   std::vector<double> residuals(n, 0.0);
   for (std::size_t i = 0; i < n; ++i) residuals[i] = y[i] - fitted_values[i];
 
-  const double y_mean = mean_vec(y, n_y);
+  const double y_mean = mean_vec(y, n);
   double TSS = 0.0;
   double RSS = 0.0;
   for (std::size_t i = 0; i < n; ++i) {

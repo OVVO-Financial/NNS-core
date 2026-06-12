@@ -14,8 +14,8 @@ namespace nns {
 struct PartitionRow {
   double x;
   double y;
-  std::string quadrant;
-  std::string prior_quadrant;
+  std::string quadrant;       // original R name: `quadrant`
+  std::string prior_quadrant; // original R name: `prior.quadrant`
 };
 
 struct RegressionPoint {
@@ -37,14 +37,14 @@ struct SegmentV {
 };
 
 struct PartitionResult {
-  int order = 0;
+  int order = 0;                                     // original R name: `order`
   bool quadrants_only = false;
-  std::vector<std::string> quadrant;
-  std::vector<PartitionRow> dt;
-  std::vector<RegressionPoint> regression_points;
-  std::vector<SegmentH> segments_h;
-  std::vector<SegmentV> segments_v;
-  std::vector<double> vlines;
+  std::vector<std::string> quadrant;                 // original R name: `quadrant`
+  std::vector<PartitionRow> dt;                      // original R name: `dt`
+  std::vector<RegressionPoint> regression_points;    // original R name: `regression.points`
+  std::vector<SegmentH> segments_h;                  // original R name: `segments_h`
+  std::vector<SegmentV> segments_v;                  // original R name: `segments_v`
+  std::vector<double> vlines;                        // original R name: `vlines`
 };
 
 /// Pure C++ port of original NNS_part_cpp.  x and y are observation vectors of
@@ -55,11 +55,11 @@ struct PartitionResult {
 PartitionResult partition(const double* x,
                           const double* y,
                           std::size_t n,
-                          const std::optional<std::string>& type,
-                          const std::optional<int>& order_in,
-                          int obs_req,
-                          bool min_obs_stop,
-                          const std::string& noise_reduction,
+                          const std::optional<std::string>& type = std::nullopt,
+                          const std::optional<int>& order_in = std::nullopt,
+                          int obs_req = 8,
+                          bool min_obs_stop = false,
+                          const std::string& noise_reduction = "off",
                           bool quadrants_only = false);
 
 } // namespace nns

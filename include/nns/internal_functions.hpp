@@ -1,15 +1,44 @@
-// include/nns/numerics.hpp
+// include/nns/internal_functions.hpp
 //
 // SPDX-License-Identifier: GPL-3.0-only
-#ifndef NNS_NUMERICS_HPP
-#define NNS_NUMERICS_HPP
+#ifndef NNS_INTERNAL_FUNCTIONS_HPP
+#define NNS_INTERNAL_FUNCTIONS_HPP
 
 #include <cstddef>
+#include <string>
 #include <vector>
 
 namespace nns {
 
 // --- Basic Utilities ---
+
+// Pure-C++ representation of the original R factor/string/logical class check.
+enum class ValueKind { Numeric, Integer, Logical, String, Factor };
+
+bool is_fcl(ValueKind kind);
+
+// Pure-C++ factor representation. Codes are 1-based like R factors; code 0
+// represents NA. Levels preserve original R ordering.
+struct Factor {
+  std::vector<int> codes;
+  std::vector<std::string> levels;
+};
+
+struct DummyMatrix {
+  std::vector<double> data;      // column-major matrix data
+  std::vector<std::string> names; // column names in original R level order
+  std::size_t nrow = 0;
+  std::size_t ncol = 0;
+};
+
+// Equivalent to factor_2_dummy: drops the first level when more than one
+// factor level is present in the data, preserving R's 1-based factor codes.
+DummyMatrix factor_2_dummy(const Factor& factor);
+
+// Equivalent to factor_2_dummy_FR: full-rank dummy expansion retaining every
+// level column, preserving level/column ordering.
+DummyMatrix factor_2_dummy_fr(const Factor& factor);
+
 
 double vec_sd(const double* x, std::size_t n);
 std::vector<double> col_sd(const double* X, std::size_t n, std::size_t p);
@@ -70,4 +99,4 @@ SampleResult down_sample(const double* X, const int* y, std::size_t n, std::size
 
 } // namespace nns
 
-#endif // NNS_NUMERICS_HPP
+#endif // NNS_INTERNAL_FUNCTIONS_HPP
