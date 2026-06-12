@@ -113,7 +113,7 @@ SeasonalityResult seasonality(const double* x, std::size_t n,
     return {
       {0}, {0.0}, {0.0}, // all.periods (DataFrame cols)
       0,                 // best.period
-      {}                 // periods
+      {0}                // periods (upstream returns c(0), not empty)
     };
   }
 
