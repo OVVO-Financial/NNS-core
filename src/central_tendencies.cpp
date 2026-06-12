@@ -1,6 +1,6 @@
 // src/central_tendencies.cpp
 //
-// Implementation extracted from NNS 13.0. Decoupled from Rcpp.
+// Implementation reconstructed from original_src/central_tendencies.cpp; covers NNS_gravity_cpp, NNS_rescale_cpp, and NNS_mode_cpp. Decoupled from Rcpp.
 //
 // SPDX-License-Identifier: GPL-3.0-only
 #include "nns/central_tendencies.hpp"

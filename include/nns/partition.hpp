@@ -5,12 +5,18 @@
 #define NNS_PARTITION_HPP
 
 #include <cstddef>
+#include <optional>
 #include <string>
 #include <vector>
 
 namespace nns {
 
-// --- Output Data Structures ---
+struct PartitionRow {
+  double x;
+  double y;
+  std::string quadrant;
+  std::string prior_quadrant;
+};
 
 struct RegressionPoint {
   std::string quadrant;
@@ -30,33 +36,31 @@ struct SegmentV {
   double y1;
 };
 
-struct PartitionNode {
-  int id;
-  double x;
-  double y;
-  std::string quadrant;
-};
-
 struct PartitionResult {
+  int order = 0;
+  bool quadrants_only = false;
+  std::vector<std::string> quadrant;
+  std::vector<PartitionRow> dt;
   std::vector<RegressionPoint> regression_points;
-  std::vector<SegmentH> segment_h;
-  std::vector<SegmentV> segment_v;
-  std::vector<PartitionNode> nodes;
+  std::vector<SegmentH> segments_h;
+  std::vector<SegmentV> segments_v;
+  std::vector<double> vlines;
 };
 
-// --- Core API ---
-
-/// Iteratively partition an (x, y) space based on central gravity.
-///
-/// @param x Pointer to the predictor array.
-/// @param y Pointer to the response array.
-/// @param n Number of observations.
-/// @param Voronoi Flag to enable fine-grained Voronoi splitting (1 = yes, 0 = no).
-/// @param min_obs Minimum number of observations required to split a node.
-/// @param type Aggregation rule for y ("mean", "median", "sum", "last").
-/// @return A PartitionResult struct containing quadrants, regression points, and boundaries.
-PartitionResult partition(const double* x, const double* y, std::size_t n, 
-                          int Voronoi, int min_obs, const std::string& type = "mean");
+/// Pure C++ port of original NNS_part_cpp.  x and y are observation vectors of
+/// length n.  A present `type` optional enables the upstream x-only path; its
+/// string contents are intentionally ignored.  Labels and output field names map
+/// to original R payload names (`quadrant`, `prior.quadrant`, `segments_h`,
+/// `segments_v`).
+PartitionResult partition(const double* x,
+                          const double* y,
+                          std::size_t n,
+                          const std::optional<std::string>& type,
+                          const std::optional<int>& order_in,
+                          int obs_req,
+                          bool min_obs_stop,
+                          const std::string& noise_reduction,
+                          bool quadrants_only = false);
 
 } // namespace nns
 
