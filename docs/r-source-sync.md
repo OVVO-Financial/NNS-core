@@ -54,6 +54,50 @@ The `r_src_tree_hash` is a SHA-256 over the R `src/**` tree computed with
 `scripts/hash_r_src.py`. It is stable across machines because it hashes sorted
 relative file paths plus file bytes, never timestamps.
 
+## Conservative sync engine
+
+The sync workflow may automatically update `NNS-core`, but only within strict
+limits encoded in `sync/r_src_map.json` and enforced by `scripts/sync_adapter.py`.
+
+The adapter's **only** transformation to the C++ core is rewriting a managed
+provenance comment block that records the incoming R commit:
+
+```cpp
+// ---- NNS-CORE PROVENANCE (managed by scripts/sync_adapter.py; do not hand-edit) ----
+// NNS-R-SOURCE: src/partial_moments.cpp @ <r_commit>
+// ---- end NNS-CORE PROVENANCE ----
+```
+
+It never edits C++ logic. For each changed R `src` file the adapter:
+
+* fetches the incoming R source file from the requested commit
+* verifies the expected function signatures (markers) are still present, and
+  **refuses** (routing to manual review) if any are missing — a changed public
+  signature means a real port is required, not a provenance bump
+* rewrites the provenance block **only** for `auto: true` mappings, which are
+  limited to files whose numerical behavior is covered by the live Rcpp fidelity
+  suite
+* writes `sync/last_sync_report.md` explaining exactly what changed
+
+For `auto: false` mappings and for **unmapped** changed R `src` files, the
+workflow does not invent a port. It opens a draft PR / manual-review request
+enumerating the files a human must port (and add fidelity coverage for).
+Generated Rcpp glue and build files listed under `ignore` do not trigger a
+manual-port request.
+
+## Live Rcpp fidelity gate
+
+Before a sync PR may be marked ready, the workflow:
+
+1. installs the incoming R checkout with `R CMD INSTALL`
+2. generates JSON truth from live R calls (`tests/fidelity/generate_truth.R`)
+3. builds `NNS-core` (with `-DNNSCORE_BUILD_FIDELITY=ON`)
+4. compares C++ outputs against the live R truth (`scripts/run_fidelity.py`)
+
+A sync PR is opened as a **draft** unless every changed `src/**` file was cleanly
+auto-handled by the adapter **and** the live Rcpp fidelity suite passed. No sync
+is marked ready on fidelity failure or when fidelity could not be run.
+
 ## Downstream notification
 
 After a core sync merges to `main`, this repository dispatches
