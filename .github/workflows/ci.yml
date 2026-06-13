@@ -20,8 +20,10 @@ jobs:
       uses: actions/checkout@v4
 
     - name: Configure CMake
-      # Note: Tests and Python are OFF for now until we add those directories in Steps 6 & 7
-      run: cmake -B build -DCMAKE_BUILD_TYPE=Release -DNNSCORE_BUILD_TESTS=OFF -DNNSCORE_BUILD_PYTHON=OFF
+      run: cmake -B build -DCMAKE_BUILD_TYPE=Release -DNNSCORE_BUILD_TESTS=ON -DNNSCORE_BUILD_PYTHON=OFF
 
     - name: Build Core Library
       run: cmake --build build --config Release
+
+    - name: Test
+      run: ctest --test-dir build --build-config Release --output-on-failure

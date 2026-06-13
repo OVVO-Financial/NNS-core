@@ -1,0 +1,12 @@
+{
+  "r_repo": "OVVO-Financial/NNS",
+  "r_commit": "905b8bbd42b3236bf88aba7f18df7a9a378dbd7b",
+  "r_version": "13.0",
+  "r_src_tree_hash": "03ac013e5cdaa606300eea2b5c0ac16aa23a61362b555d5522e42eccd069d581",
+  "core_repo": "OVVO-Financial/NNS-core",
+  "core_commit": "7f93df9dff8762df870c1fbba6e03c0469be6e69",
+  "source_paths": [
+    "src"
+  ],
+  "notes": "NNS-core is the portable C++ extraction of the R NNS src layer. The R repo remains authoritative."
+}

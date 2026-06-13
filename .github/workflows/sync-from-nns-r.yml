@@ -1,0 +1,241 @@
+name: Sync from R NNS src
+
+on:
+  repository_dispatch:
+    types: [nns-r-src-updated]
+  workflow_dispatch:
+    inputs:
+      r_commit:
+        required: true
+        type: string
+      r_version:
+        required: true
+        type: string
+      r_src_tree_hash:
+        required: false
+        type: string
+
+permissions:
+  contents: write
+  pull-requests: write
+  issues: write
+
+jobs:
+  sync-r-src:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out NNS-core
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Resolve payload
+        id: payload
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if [ "${{ github.event_name }}" = "repository_dispatch" ]; then
+            echo "r_commit=${{ github.event.client_payload.r_commit }}" >> "$GITHUB_OUTPUT"
+            echo "r_version=${{ github.event.client_payload.r_version }}" >> "$GITHUB_OUTPUT"
+            echo "r_src_tree_hash=${{ github.event.client_payload.r_src_tree_hash }}" >> "$GITHUB_OUTPUT"
+            echo '${{ toJson(github.event.client_payload.changed_files) }}' > changed_files.json
+          else
+            echo "r_commit=${{ inputs.r_commit }}" >> "$GITHUB_OUTPUT"
+            echo "r_version=${{ inputs.r_version }}" >> "$GITHUB_OUTPUT"
+            echo "r_src_tree_hash=${{ inputs.r_src_tree_hash }}" >> "$GITHUB_OUTPUT"
+            echo '[]' > changed_files.json
+          fi
+
+      - name: Check out upstream R NNS
+        uses: actions/checkout@v4
+        with:
+          repository: OVVO-Financial/NNS
+          ref: ${{ steps.payload.outputs.r_commit }}
+          path: upstream/NNS
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Compute incoming R src hash
+        id: hash
+        shell: bash
+        run: |
+          set -euo pipefail
+          hash="$(python scripts/hash_r_src.py upstream/NNS)"
+          echo "incoming_hash=${hash}" >> "$GITHUB_OUTPUT"
+
+      - name: Compare with manifest
+        id: compare
+        shell: bash
+        run: |
+          set -euo pipefail
+          current="$(python - <<'PY'
+          import json
+          from pathlib import Path
+          data = json.loads(Path("sync/nns_r_source.json").read_text())
+          print(data.get("r_src_tree_hash", ""))
+          PY
+          )"
+          incoming="${{ steps.hash.outputs.incoming_hash }}"
+          echo "current_hash=${current}" >> "$GITHUB_OUTPUT"
+          if [ "$current" = "$incoming" ]; then
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Stop if unchanged
+        if: steps.compare.outputs.changed == 'false'
+        run: echo "R src hash unchanged. No NNS-core sync required."
+
+      - name: Inspect changed R src
+        if: steps.compare.outputs.changed == 'true'
+        run: |
+          python scripts/inspect_r_src_update.py \
+            --r-checkout upstream/NNS \
+            --r-commit "${{ steps.payload.outputs.r_commit }}" \
+            --r-version "${{ steps.payload.outputs.r_version }}" \
+            --changed-files-json changed_files.json
+
+      - name: Run conservative sync adapter
+        id: adapter
+        if: steps.compare.outputs.changed == 'true'
+        run: |
+          python scripts/sync_adapter.py \
+            --r-checkout upstream/NNS \
+            --r-commit "${{ steps.payload.outputs.r_commit }}" \
+            --changed-files-json changed_files.json
+
+      # ---- live Rcpp fidelity (best effort; gates PR readiness) -------------
+      - name: Set up R
+        if: steps.compare.outputs.changed == 'true'
+        id: setup_r
+        continue-on-error: true
+        uses: r-lib/actions/setup-r@v2
+        with:
+          r-version: release
+
+      - name: Install incoming R NNS (R CMD INSTALL)
+        if: steps.compare.outputs.changed == 'true' && steps.setup_r.outcome == 'success'
+        id: rinstall
+        continue-on-error: true
+        shell: bash
+        run: |
+          set -euo pipefail
+          Rscript -e 'install.packages(c("remotes"), repos="https://cloud.r-project.org")'
+          Rscript -e 'remotes::install_deps("upstream/NNS", dependencies = TRUE, upgrade = "never")'
+          R CMD INSTALL upstream/NNS
+
+      - name: Generate live R truth
+        if: steps.compare.outputs.changed == 'true' && steps.rinstall.outcome == 'success'
+        id: truth
+        continue-on-error: true
+        run: |
+          Rscript tests/fidelity/generate_truth.R \
+            tests/fidelity/truth.json \
+            "${{ steps.payload.outputs.r_commit }}" \
+            "${{ steps.payload.outputs.r_version }}"
+
+      - name: Build NNS-core with fidelity helper
+        if: steps.compare.outputs.changed == 'true'
+        id: buildcore
+        continue-on-error: true
+        run: |
+          cmake -S . -B build -DCMAKE_BUILD_TYPE=Release \
+            -DNNSCORE_BUILD_TESTS=ON -DNNSCORE_BUILD_FIDELITY=ON
+          cmake --build build --parallel
+          ctest --test-dir build --output-on-failure
+
+      - name: Compare C++ against live R truth
+        if: steps.compare.outputs.changed == 'true' && steps.truth.outcome == 'success' && steps.buildcore.outcome == 'success'
+        id: fidelity
+        continue-on-error: true
+        run: |
+          python scripts/run_fidelity.py \
+            --truth tests/fidelity/truth.json \
+            --eval-bin build/tests/fidelity/nns_eval
+
+      - name: Decide PR readiness
+        id: decide
+        if: steps.compare.outputs.changed == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          needs_manual="${{ steps.adapter.outputs.needs_manual }}"
+          ready_candidate="${{ steps.adapter.outputs.ready_candidate }}"
+          fidelity_ok="${{ steps.fidelity.outcome == 'success' }}"
+
+          # Ready (non-draft) ONLY when the adapter cleanly auto-updated every
+          # changed file AND the live Rcpp fidelity suite passed.
+          if [ "$ready_candidate" = "true" ] && [ "$fidelity_ok" = "true" ]; then
+            echo "draft=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "draft=true" >> "$GITHUB_OUTPUT"
+          fi
+          echo "fidelity_ok=${fidelity_ok}" >> "$GITHUB_OUTPUT"
+          echo "needs_manual=${needs_manual}" >> "$GITHUB_OUTPUT"
+
+      - name: Update manifest (ready syncs only)
+        if: steps.compare.outputs.changed == 'true' && steps.decide.outputs.draft == 'false'
+        shell: bash
+        env:
+          R_COMMIT: ${{ steps.payload.outputs.r_commit }}
+          R_VERSION: ${{ steps.payload.outputs.r_version }}
+          R_HASH: ${{ steps.hash.outputs.incoming_hash }}
+        run: |
+          python - <<'PY'
+          import json, os
+          from pathlib import Path
+          p = Path("sync/nns_r_source.json")
+          d = json.loads(p.read_text())
+          d["r_commit"] = os.environ["R_COMMIT"]
+          d["r_version"] = os.environ["R_VERSION"]
+          d["r_src_tree_hash"] = os.environ["R_HASH"]
+          p.write_text(json.dumps(d, indent=2) + "\n")
+          print("manifest updated to", d["r_commit"])
+          PY
+
+      - name: Clean up scratch files
+        if: steps.compare.outputs.changed == 'true'
+        shell: bash
+        run: |
+          rm -rf build upstream
+          rm -f changed_files.json tests/fidelity/truth.json sync/last_sync_result.json
+
+      - name: Open sync PR
+        if: steps.compare.outputs.changed == 'true'
+        uses: peter-evans/create-pull-request@v6
+        with:
+          branch: sync-r-src-${{ steps.payload.outputs.r_commit }}
+          draft: ${{ steps.decide.outputs.draft }}
+          title: Sync R NNS src ${{ steps.payload.outputs.r_commit }}
+          commit-message: Sync R NNS src ${{ steps.payload.outputs.r_commit }}
+          body: |
+            Automated sync triggered because `OVVO-Financial/NNS` changed `src/**`.
+
+            - Incoming R commit: `${{ steps.payload.outputs.r_commit }}`
+            - R version: `${{ steps.payload.outputs.r_version }}`
+            - Previous R src hash: `${{ steps.compare.outputs.current_hash }}`
+            - Incoming R src hash: `${{ steps.hash.outputs.incoming_hash }}`
+            - Needs manual review: `${{ steps.decide.outputs.needs_manual }}`
+            - Live Rcpp fidelity passed: `${{ steps.decide.outputs.fidelity_ok }}`
+
+            The conservative adapter only rewrites managed provenance comments for
+            fidelity-covered files; it never edits C++ logic. See:
+
+            - `sync/last_r_src_inspection.md`
+            - `sync/last_sync_report.md`
+            - `tests/fidelity/fidelity_report.md`
+
+            **This PR is opened as a draft unless every changed `src/**` file was
+            cleanly auto-handled and the live Rcpp fidelity suite passed.** If it
+            is a draft, a human must port the listed files (and add fidelity
+            cases), update `sync/nns_r_source.json`, and confirm fidelity before
+            marking it ready.
+
+            This PR does not change Python. Merged core changes notify
+            `OVVO-Financial/NNS-python`.

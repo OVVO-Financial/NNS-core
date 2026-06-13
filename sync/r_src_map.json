@@ -1,0 +1,118 @@
+{
+  "schema": 1,
+  "r_repo": "OVVO-Financial/NNS",
+  "source_root": "src",
+  "provenance": {
+    "begin_marker": "// ---- NNS-CORE PROVENANCE (managed by scripts/sync_adapter.py; do not hand-edit) ----",
+    "end_marker": "// ---- end NNS-CORE PROVENANCE ----",
+    "source_line_format": "// NNS-R-SOURCE: {r_src} @ {commit}"
+  },
+  "notes": [
+    "Only files listed in `mappings` may be touched automatically, and the only",
+    "automatic transformation is rewriting the managed provenance comment block.",
+    "`auto` may be true ONLY for files whose numerical behavior is covered by the",
+    "live Rcpp fidelity suite (tests/fidelity). Everything else is routed to manual",
+    "review. The adapter never edits C++ logic; correctness is enforced by fidelity.",
+    "`required_r_signatures` are substrings that must appear in the incoming R src",
+    "file. If any is missing the adapter refuses and routes the file to manual review,",
+    "because a changed public signature means a real port (not a provenance bump) is",
+    "required.",
+    "`ignore` lists generated Rcpp glue and build files that are intentionally not",
+    "part of the portable core; changes to them do not trigger a manual-port request."
+  ],
+  "ignore": [
+    "src/RcppExports.cpp",
+    "src/nns_rcpp.cpp",
+    "src/partial_moments_rcpp.cpp",
+    "src/partial_moments_rcpp.h",
+    "src/Makevars",
+    "src/Makevars.win",
+    "src/NNS.dll"
+  ],
+  "mappings": [
+    {
+      "r_src": "src/partial_moments.cpp",
+      "core_paths": ["src/partial_moments.cpp", "include/nns/partial_moments.hpp"],
+      "auto": true,
+      "fidelity_covered": true,
+      "required_r_signatures": ["double LPM_C(", "double UPM_C("]
+    },
+    {
+      "r_src": "src/partial_moments.h",
+      "core_paths": ["include/nns/partial_moments.hpp", "src/partial_moments.cpp"],
+      "auto": true,
+      "fidelity_covered": true,
+      "required_r_signatures": ["double LPM_C(", "LPM_CPv("]
+    },
+    {
+      "r_src": "src/NNS_dep.cpp",
+      "core_paths": ["src/dependence.cpp", "include/nns/dependence.hpp"],
+      "auto": false,
+      "fidelity_covered": false,
+      "required_r_signatures": ["NNS_dep_pair_cpp(", "NNS_dep_matrix_cpp("]
+    },
+    {
+      "r_src": "src/NNS_distance.cpp",
+      "core_paths": ["src/distance.cpp", "include/nns/distance.hpp"],
+      "auto": false,
+      "fidelity_covered": false,
+      "required_r_signatures": ["NNS_distance_cpp("]
+    },
+    {
+      "r_src": "src/NNS_part.cpp",
+      "core_paths": ["src/partition.cpp", "include/nns/partition.hpp"],
+      "auto": false,
+      "fidelity_covered": false,
+      "required_r_signatures": ["NNS_part_cpp("]
+    },
+    {
+      "r_src": "src/NNS_seas.cpp",
+      "core_paths": ["src/seasonality.cpp", "include/nns/seasonality.hpp"],
+      "auto": false,
+      "fidelity_covered": false,
+      "required_r_signatures": ["NNS_seas_cpp("]
+    },
+    {
+      "r_src": "src/SD.cpp",
+      "core_paths": ["src/stochastic_dominance.cpp", "include/nns/stochastic_dominance.hpp"],
+      "auto": false,
+      "fidelity_covered": false,
+      "required_r_signatures": ["NNS_SD_efficient_set_parallel_cpp(", "NNS_FSD_uni_cpp(", "NNS_SSD_uni_cpp("]
+    },
+    {
+      "r_src": "src/stoch_sup.cpp",
+      "core_paths": ["src/stochastic_dominance.cpp", "include/nns/stochastic_dominance.hpp"],
+      "auto": false,
+      "fidelity_covered": false,
+      "required_r_signatures": ["stoch_superiority_cpp("]
+    },
+    {
+      "r_src": "src/central_tendencies.cpp",
+      "core_paths": ["src/central_tendencies.cpp", "include/nns/central_tendencies.hpp"],
+      "auto": false,
+      "fidelity_covered": false,
+      "required_r_signatures": ["NNS_gravity_cpp(", "NNS_mode_cpp("]
+    },
+    {
+      "r_src": "src/central_tendencies.h",
+      "core_paths": ["include/nns/central_tendencies.hpp", "src/central_tendencies.cpp"],
+      "auto": false,
+      "fidelity_covered": false,
+      "required_r_signatures": ["NNS_gravity_cpp(", "NNS_mode_cpp("]
+    },
+    {
+      "r_src": "src/fast_lm.cpp",
+      "core_paths": ["src/fast_lm.cpp", "include/nns/fast_lm.hpp"],
+      "auto": false,
+      "fidelity_covered": false,
+      "required_r_signatures": ["fast_lm(", "fast_lm_mult("]
+    },
+    {
+      "r_src": "src/internal_functions.cpp",
+      "core_paths": ["src/internal_functions.cpp", "include/nns/internal_functions.hpp"],
+      "auto": false,
+      "fidelity_covered": false,
+      "required_r_signatures": ["generate_vectors(", "colSd("]
+    }
+  ]
+}

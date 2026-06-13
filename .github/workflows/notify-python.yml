@@ -1,0 +1,101 @@
+name: Notify NNS-python
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  notify-python:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out NNS-core
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+
+      - name: Detect relevant changes
+        id: detect
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if git rev-parse HEAD^ >/dev/null 2>&1; then
+            git diff --name-only HEAD^ HEAD > changed_files.txt
+          else
+            git ls-files > changed_files.txt
+          fi
+
+          if grep -Eq '^(src/|include/|CMakeLists.txt|sync/nns_r_source.json)' changed_files.txt; then
+            echo "notify=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "notify=false" >> "$GITHUB_OUTPUT"
+          fi
+
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          files = [
+              line.strip()
+              for line in Path("changed_files.txt").read_text().splitlines()
+              if line.strip()
+          ]
+          Path("changed_files.json").write_text(json.dumps(files), encoding="utf-8")
+          PY
+
+      - name: Dispatch NNS-python core update
+        if: steps.detect.outputs.notify == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.OVVO_SYNC_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          r_repo="$(python - <<'PY'
+          import json
+          from pathlib import Path
+          data = json.loads(Path("sync/nns_r_source.json").read_text())
+          print(data["r_repo"])
+          PY
+          )"
+
+          r_commit="$(python - <<'PY'
+          import json
+          from pathlib import Path
+          data = json.loads(Path("sync/nns_r_source.json").read_text())
+          print(data["r_commit"])
+          PY
+          )"
+
+          r_version="$(python - <<'PY'
+          import json
+          from pathlib import Path
+          data = json.loads(Path("sync/nns_r_source.json").read_text())
+          print(data["r_version"])
+          PY
+          )"
+
+          r_src_tree_hash="$(python - <<'PY'
+          import json
+          from pathlib import Path
+          data = json.loads(Path("sync/nns_r_source.json").read_text())
+          print(data["r_src_tree_hash"])
+          PY
+          )"
+
+          files_json="$(cat changed_files.json)"
+
+          gh api repos/OVVO-Financial/NNS-python/dispatches \
+            -f event_type=nns-core-updated \
+            -f client_payload[core_repo]="OVVO-Financial/NNS-core" \
+            -f client_payload[core_commit]="${GITHUB_SHA}" \
+            -f client_payload[core_ref]="${GITHUB_REF_NAME}" \
+            -f client_payload[r_repo]="${r_repo}" \
+            -f client_payload[r_commit]="${r_commit}" \
+            -f client_payload[r_version]="${r_version}" \
+            -f client_payload[r_src_tree_hash]="${r_src_tree_hash}" \
+            -f client_payload[changed_files]="${files_json}"
