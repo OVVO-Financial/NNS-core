@@ -1,0 +1,134 @@
+name: Sync from R NNS src
+
+on:
+  repository_dispatch:
+    types: [nns-r-src-updated]
+  workflow_dispatch:
+    inputs:
+      r_commit:
+        required: true
+        type: string
+      r_version:
+        required: true
+        type: string
+      r_src_tree_hash:
+        required: false
+        type: string
+
+permissions:
+  contents: write
+  pull-requests: write
+  issues: write
+
+jobs:
+  inspect-r-src:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out NNS-core
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Resolve payload
+        id: payload
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if [ "${{ github.event_name }}" = "repository_dispatch" ]; then
+            echo "r_commit=${{ github.event.client_payload.r_commit }}" >> "$GITHUB_OUTPUT"
+            echo "r_version=${{ github.event.client_payload.r_version }}" >> "$GITHUB_OUTPUT"
+            echo "r_src_tree_hash=${{ github.event.client_payload.r_src_tree_hash }}" >> "$GITHUB_OUTPUT"
+            echo '${{ toJson(github.event.client_payload.changed_files) }}' > changed_files.json
+          else
+            echo "r_commit=${{ inputs.r_commit }}" >> "$GITHUB_OUTPUT"
+            echo "r_version=${{ inputs.r_version }}" >> "$GITHUB_OUTPUT"
+            echo "r_src_tree_hash=${{ inputs.r_src_tree_hash }}" >> "$GITHUB_OUTPUT"
+            echo '[]' > changed_files.json
+          fi
+
+      - name: Check out upstream R NNS
+        uses: actions/checkout@v4
+        with:
+          repository: OVVO-Financial/NNS
+          ref: ${{ steps.payload.outputs.r_commit }}
+          path: upstream/NNS
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Compute incoming R src hash
+        id: hash
+        shell: bash
+        run: |
+          set -euo pipefail
+          hash="$(python scripts/hash_r_src.py upstream/NNS)"
+          echo "incoming_hash=${hash}" >> "$GITHUB_OUTPUT"
+
+      - name: Compare with manifest
+        id: compare
+        shell: bash
+        run: |
+          set -euo pipefail
+          current="$(python - <<'PY'
+          import json
+          from pathlib import Path
+          data = json.loads(Path("sync/nns_r_source.json").read_text())
+          print(data.get("r_src_tree_hash", ""))
+          PY
+          )"
+
+          incoming="${{ steps.hash.outputs.incoming_hash }}"
+          echo "current_hash=${current}" >> "$GITHUB_OUTPUT"
+
+          if [ "$current" = "$incoming" ]; then
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Stop if unchanged
+        if: steps.compare.outputs.changed == 'false'
+        run: |
+          echo "R src hash unchanged. No NNS-core sync required."
+
+      - name: Inspect changed R src
+        if: steps.compare.outputs.changed == 'true'
+        run: |
+          python scripts/inspect_r_src_update.py \
+            --r-checkout upstream/NNS \
+            --r-commit "${{ steps.payload.outputs.r_commit }}" \
+            --r-version "${{ steps.payload.outputs.r_version }}" \
+            --changed-files-json changed_files.json
+
+      - name: Clean up scratch files
+        if: steps.compare.outputs.changed == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -f changed_files.json
+          rm -rf upstream
+
+      - name: Open sync inspection PR
+        if: steps.compare.outputs.changed == 'true'
+        uses: peter-evans/create-pull-request@v6
+        with:
+          branch: sync-r-src-${{ steps.payload.outputs.r_commit }}
+          title: Sync inspection for R NNS src ${{ steps.payload.outputs.r_commit }}
+          body: |
+            This PR was opened because `OVVO-Financial/NNS` changed `src/**`.
+
+            Incoming R commit: `${{ steps.payload.outputs.r_commit }}`
+            R version: `${{ steps.payload.outputs.r_version }}`
+            Previous R src hash: `${{ steps.compare.outputs.current_hash }}`
+            Incoming R src hash: `${{ steps.hash.outputs.incoming_hash }}`
+
+            Review `sync/last_r_src_inspection.md`, port any required C++ changes,
+            update `sync/nns_r_source.json`, and run C++ validation before merge.
+
+            This PR intentionally does not update Python. Merged core changes will
+            notify `OVVO-Financial/NNS-python`.
+          commit-message: Inspect R NNS src update ${{ steps.payload.outputs.r_commit }}

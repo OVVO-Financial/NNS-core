@@ -1,2 +1,16 @@
 # NNS-core
 Core NNS functions for C++ port
+
+## Role in the NNS project
+
+`NNS-core` is the portable C++ core extracted from the R package
+[`OVVO-Financial/NNS`](https://github.com/OVVO-Financial/NNS).
+
+The R package is authoritative. This repository records the exact R commit and
+`src/**` tree hash in `sync/nns_r_source.json`.
+
+Downstream Python integration happens in
+[`OVVO-Financial/NNS-python`](https://github.com/OVVO-Financial/NNS-python).
+
+See [`docs/r-source-sync.md`](docs/r-source-sync.md) for the full source sync
+contract.
