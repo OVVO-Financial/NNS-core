@@ -1,5 +1,18 @@
 name: Notify NNS-python
 
+# Emitter (sending) side of the nns-core-updated contract. When an accepted
+# public commit lands on NNS-core's main, dispatch nns-core-updated to
+# NNS-python's sync-from-nns-core.yml, carrying the native commit plus the R
+# provenance it was extracted from.
+#
+# "Accepted" here means merged to main (via reviewed PR). To gate more narrowly,
+# switch the trigger to `on: release: { types: [published] }` or
+# `on: push: { tags: ['v*'] }` and use the tag SHA as core_commit.
+#
+# Cross-repo dispatch authority comes from the PAT (OVVO_SYNC_TOKEN, fine-grained
+# with Contents: Read and write on OVVO-Financial/NNS-python), NOT from
+# GITHUB_TOKEN -- so this workflow's own permissions only need contents: read.
+
 on:
   push:
     branches: [main]
@@ -18,84 +31,61 @@ jobs:
         with:
           fetch-depth: 2
 
-      - name: Detect relevant changes
+      - name: Detect native core changes
         id: detect
         shell: bash
         run: |
           set -euo pipefail
-
+          # NNS-python only cares about the native core. Skip docs-only / CI-only
+          # merges so they don't trigger a spurious Python sync.
           if git rev-parse HEAD^ >/dev/null 2>&1; then
             git diff --name-only HEAD^ HEAD > changed_files.txt
           else
             git ls-files > changed_files.txt
           fi
-
           if grep -Eq '^(src/|include/|CMakeLists.txt|sync/nns_r_source.json)' changed_files.txt; then
             echo "notify=true" >> "$GITHUB_OUTPUT"
           else
             echo "notify=false" >> "$GITHUB_OUTPUT"
           fi
 
-          python - <<'PY'
-          import json
-          from pathlib import Path
-          files = [
-              line.strip()
-              for line in Path("changed_files.txt").read_text().splitlines()
-              if line.strip()
-          ]
-          Path("changed_files.json").write_text(json.dumps(files), encoding="utf-8")
-          PY
-
-      - name: Dispatch NNS-python core update
+      - name: Resolve R provenance carried by NNS-core
         if: steps.detect.outputs.notify == 'true'
-        env:
-          GH_TOKEN: ${{ secrets.OVVO_SYNC_TOKEN }}
+        id: prov
         shell: bash
         run: |
           set -euo pipefail
+          manifest="sync/nns_r_source.json"
+          echo "r_repo=$(jq -r '.r_repo // "OVVO-Financial/NNS"' "$manifest")" >> "$GITHUB_OUTPUT"
+          echo "r_commit=$(jq -r '.r_commit' "$manifest")" >> "$GITHUB_OUTPUT"
+          echo "r_version=$(jq -r '.r_version' "$manifest")" >> "$GITHUB_OUTPUT"
+          echo "r_src_tree_hash=$(jq -r '.r_src_tree_hash' "$manifest")" >> "$GITHUB_OUTPUT"
 
-          r_repo="$(python - <<'PY'
-          import json
-          from pathlib import Path
-          data = json.loads(Path("sync/nns_r_source.json").read_text())
-          print(data["r_repo"])
-          PY
-          )"
-
-          r_commit="$(python - <<'PY'
-          import json
-          from pathlib import Path
-          data = json.loads(Path("sync/nns_r_source.json").read_text())
-          print(data["r_commit"])
-          PY
-          )"
-
-          r_version="$(python - <<'PY'
-          import json
-          from pathlib import Path
-          data = json.loads(Path("sync/nns_r_source.json").read_text())
-          print(data["r_version"])
-          PY
-          )"
-
-          r_src_tree_hash="$(python - <<'PY'
-          import json
-          from pathlib import Path
-          data = json.loads(Path("sync/nns_r_source.json").read_text())
-          print(data["r_src_tree_hash"])
-          PY
-          )"
-
-          files_json="$(cat changed_files.json)"
-
-          gh api repos/OVVO-Financial/NNS-python/dispatches \
-            -f event_type=nns-core-updated \
-            -f client_payload[core_repo]="OVVO-Financial/NNS-core" \
-            -f client_payload[core_commit]="${GITHUB_SHA}" \
-            -f client_payload[core_ref]="${GITHUB_REF_NAME}" \
-            -f client_payload[r_repo]="${r_repo}" \
-            -f client_payload[r_commit]="${r_commit}" \
-            -f client_payload[r_version]="${r_version}" \
-            -f client_payload[r_src_tree_hash]="${r_src_tree_hash}" \
-            -f client_payload[changed_files]="${files_json}"
+      - name: Dispatch nns-core-updated to NNS-python
+        if: steps.detect.outputs.notify == 'true'
+        env:
+          TOKEN: ${{ secrets.OVVO_SYNC_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -z "${TOKEN:-}" ]; then
+            echo "OVVO_SYNC_TOKEN not set in NNS-core; cannot notify NNS-python." >&2
+            exit 1
+          fi
+          # client_payload keys match exactly what NNS-python's
+          # sync-from-nns-core.yml reads.
+          payload=$(jq -n \
+            --arg cc "${GITHUB_SHA}" \
+            --arg rr "${{ steps.prov.outputs.r_repo }}" \
+            --arg rc "${{ steps.prov.outputs.r_commit }}" \
+            --arg rv "${{ steps.prov.outputs.r_version }}" \
+            --arg rh "${{ steps.prov.outputs.r_src_tree_hash }}" \
+            '{event_type:"nns-core-updated",
+              client_payload:{core_commit:$cc, r_repo:$rr, r_commit:$rc,
+                              r_version:$rv, r_src_tree_hash:$rh}}')
+          curl -sSf -X POST \
+            -H "Accept: application/vnd.github+json" \
+            -H "Authorization: Bearer ${TOKEN}" \
+            https://api.github.com/repos/OVVO-Financial/NNS-python/dispatches \
+            -d "$payload"
+          echo "Dispatched nns-core-updated (core ${GITHUB_SHA}) to NNS-python."

@@ -6,13 +6,37 @@
 The R repo is authoritative. This repository records the exact R commit and
 `src/**` tree hash used to produce the current C++ core.
 
-Flow:
+## Two truths
+
+`OVVO-Financial/NNS` is the single source of truth, but it exposes **two
+distinct truths** that flow downstream along separate paths:
 
 ```text
-OVVO-Financial/NNS
-  -> OVVO-Financial/NNS-core
-  -> OVVO-Financial/NNS-python
+OVVO-Financial/NNS  (source of truth: R + C++ src/**)
+                   /                       \
+        src/** native truth            R API behavior truth
+                  v                          v
+          NNS-core (portable C++)        (tested directly)
+                  \                          |
+                   v                         v
+                   NNS-python  <-------------+
 ```
+
+1. **`src/**` native truth** — the numerical behavior of the R package's C++
+   (`Rcpp`) layer. This is what `NNS-core` extracts into a portable C++ core and
+   what its live Rcpp fidelity suite verifies (C++ core output == live R `src`
+   output within tolerance). `NNS-core` owns *only* this path.
+
+2. **R API behavior truth** — the behavior of the R-level NNS API. This is
+   verified directly against R and is **not** routed through `NNS-core`. It is
+   `NNS-python`'s responsibility (API surface and parity cache), not this
+   repository's.
+
+`NNS-python` is where the two truths converge: it vendors the `NNS-core` native
+core *and* tests R API behavior directly. `NNS-core` never decides Python API
+parity; it guarantees only that the portable C++ reproduces the R `src/**`
+numerics. The `nns-core-updated` dispatch feeds the left-hand (native) input
+only.
 
 ## Responsibilities
 
