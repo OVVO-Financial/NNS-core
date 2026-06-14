@@ -126,8 +126,13 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          # NNS Imports rgl, whose shared object needs libGLU.so.1 at load time.
+          # Without it, R CMD INSTALL fails at the lazy-loading step (and
+          # library(NNS) would fail too). Install the OpenGL system libs first.
+          sudo apt-get update
+          sudo apt-get install -y libglu1-mesa-dev libgl1-mesa-dev
           Rscript -e 'install.packages(c("remotes"), repos="https://cloud.r-project.org")'
-          Rscript -e 'remotes::install_deps("upstream/NNS", dependencies = TRUE, upgrade = "never")'
+          Rscript -e 'remotes::install_deps("upstream/NNS", dependencies = NA, upgrade = "never")'
           R CMD INSTALL upstream/NNS
 
       - name: Generate live R truth
@@ -210,6 +215,11 @@ jobs:
         if: steps.compare.outputs.changed == 'true'
         uses: peter-evans/create-pull-request@v6
         with:
+          # Use the PAT (not the default GITHUB_TOKEN) so PR creation is not
+          # blocked by "Allow GitHub Actions to create and approve pull
+          # requests", and so the sync PR triggers its own C++ CI. The PAT needs
+          # Contents: write and Pull requests: write on OVVO-Financial/NNS-core.
+          token: ${{ secrets.OVVO_SYNC_TOKEN }}
           branch: sync-r-src-${{ steps.payload.outputs.r_commit }}
           draft: ${{ steps.decide.outputs.draft }}
           title: Sync R NNS src ${{ steps.payload.outputs.r_commit }}
