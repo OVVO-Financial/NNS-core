@@ -126,8 +126,13 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          # NNS Imports rgl, whose shared object needs libGLU.so.1 at load time.
+          # Without it, R CMD INSTALL fails at the lazy-loading step (and
+          # library(NNS) would fail too). Install the OpenGL system libs first.
+          sudo apt-get update
+          sudo apt-get install -y libglu1-mesa-dev libgl1-mesa-dev
           Rscript -e 'install.packages(c("remotes"), repos="https://cloud.r-project.org")'
-          Rscript -e 'remotes::install_deps("upstream/NNS", dependencies = TRUE, upgrade = "never")'
+          Rscript -e 'remotes::install_deps("upstream/NNS", dependencies = NA, upgrade = "never")'
           R CMD INSTALL upstream/NNS
 
       - name: Generate live R truth
