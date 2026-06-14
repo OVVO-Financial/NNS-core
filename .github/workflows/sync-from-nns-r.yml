@@ -210,6 +210,11 @@ jobs:
         if: steps.compare.outputs.changed == 'true'
         uses: peter-evans/create-pull-request@v6
         with:
+          # Use the PAT (not the default GITHUB_TOKEN) so PR creation is not
+          # blocked by "Allow GitHub Actions to create and approve pull
+          # requests", and so the sync PR triggers its own C++ CI. The PAT needs
+          # Contents: write and Pull requests: write on OVVO-Financial/NNS-core.
+          token: ${{ secrets.OVVO_SYNC_TOKEN }}
           branch: sync-r-src-${{ steps.payload.outputs.r_commit }}
           draft: ${{ steps.decide.outputs.draft }}
           title: Sync R NNS src ${{ steps.payload.outputs.r_commit }}
