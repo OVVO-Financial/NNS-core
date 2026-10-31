@@ -19,6 +19,9 @@ add_library(nnscore
     src/seasonality.cpp
     src/fast_lm.cpp
     src/internal_functions.cpp
+    src/mreg_setup.cpp
+    src/mreg_predict.cpp
+    src/stack_fast.cpp
 )
 
 # Set the public include directories so consumers can `#include "nns/nns.hpp"`

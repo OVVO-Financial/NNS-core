@@ -11,6 +11,7 @@ set(NNSCORE_CPP_TESTS
     test_internal_functions
     test_fast_lm
     test_partition
+    test_mreg
 )
 
 foreach(test_name IN LISTS NNSCORE_CPP_TESTS)
