@@ -1,7 +1,8 @@
 // tests/cpp/test_central_tendencies.cpp
 //
 // Edge cases of nns::mode and nns::gravity (discrete keys beyond the int
-// range, tiny histograms, pathological bin counts).
+// range, tiny histograms, pathological bin counts). Expected values are the
+// NNS 13.3 results for NNS.mode(x, multi = FALSE) / NNS.gravity(x).
 //
 // SPDX-License-Identifier: GPL-3.0-only
 #include "nns/central_tendencies.hpp"
@@ -38,9 +39,25 @@ void discrete_mode_cases() {
   check(z == 0.0 && !std::signbit(z), "discrete mode folds -0 into 0");
 }
 
+// <= 3 histogram bins: the 7-tap smoother used to read past the end of the
+// count vector (ASan heap-buffer-overflow). Values are the NNS 13.3 results.
+void tiny_histogram_cases() {
+  const std::vector<double> a = {0, 0, 1, 1};
+  const std::vector<double> ma = nns::mode(a.data(), a.size(), false, true);
+  check(ma == std::vector<double>({0, 1}), "mode multi {0,0,1,1}");
+  check_close("mode {0,0,1,1}", mode1(a, false), 0.5, 0.0);
+  check_close("mode {0,1,1,2}", mode1({0, 1, 1, 2}, false), 1.0, 0.0);
+  check_close("mode {1,2,2,5}", mode1({1, 2, 2, 5}, false), 2.0, 0.0);
+  check_close("mode {1,1,1,2,9}", mode1({1, 1, 1, 2, 9}, false), 1.0, 0.0);
+  check_close("gravity {0,0,1,1}", nns::gravity(a.data(), a.size(), false), 0.375, 0.0);
+  const std::vector<double> b = {1, 1, 1, 2, 9};
+  check_close("gravity {1,1,1,2,9}", nns::gravity(b.data(), b.size(), false), 1.54375, 1e-15);
+}
+
 }  // namespace
 
 int main() {
   discrete_mode_cases();
+  tiny_histogram_cases();
   return nns_test::check_summary("test_central_tendencies");
 }

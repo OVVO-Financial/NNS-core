@@ -103,9 +103,12 @@ void smooth_counts_tri7(const std::vector<int>& counts, std::vector<double>& smo
   smooth.assign(n, 0.0);
   if (n == 0) return;
   
+  // Mirror at the edges. The clamp only binds for n <= 3 bins, whose smoothed
+  // values are unused (the peak scan needs n >= 7).
   auto at = [&](int idx) -> int {
-    if (idx < 0) return counts[-idx];
-    if (idx >= n) return counts[2 * n - 2 - idx];
+    if (idx < 0) idx = -idx;
+    if (idx >= n) idx = 2 * n - 2 - idx;
+    idx = std::min(std::max(idx, 0), n - 1);
     return counts[idx];
   };
   
