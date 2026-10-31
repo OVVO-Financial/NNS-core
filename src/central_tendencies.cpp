@@ -286,24 +286,24 @@ std::vector<double> mode(const double* x_in, std::size_t n, bool discrete, bool 
       return {nearest_int_half_up(med)};
     }
     
-    std::unordered_map<int, int> freq; 
+    // Key on the rounded value itself: NNS 13.3's int key overflowed beyond the
+    // int range. "+ 0.0" folds -0.0 into the 0 key.
+    std::unordered_map<double, int> freq;
     freq.reserve(l * 2u);
-    for (double v : xnum) ++freq[static_cast<int>(nearest_int_half_up(v))];
+    for (double v : xnum) ++freq[nearest_int_half_up(v) + 0.0];
     
     int maxf = 0; 
     for (const auto& kv : freq) if (kv.second > maxf) maxf = kv.second;
     
-    std::vector<int> modes_int;
+    std::vector<double> modes_int;
     for (const auto& kv : freq) if (kv.second == maxf) modes_int.push_back(kv.first);
     std::sort(modes_int.begin(), modes_int.end());
     
     if (multi) {
-      std::vector<double> out(modes_int.size());
-      for (std::size_t i = 0; i < modes_int.size(); ++i) out[i] = static_cast<double>(modes_int[i]);
-      return out;
+      return modes_int;
     } else {
       long double sum = 0.0L;
-      for (int m : modes_int) sum += static_cast<long double>(m);
+      for (double m : modes_int) sum += static_cast<long double>(m);
       double mean_modes = modes_int.empty() ? kNaN : static_cast<double>(sum / static_cast<long double>(modes_int.size()));
       return {mean_modes};
     }
