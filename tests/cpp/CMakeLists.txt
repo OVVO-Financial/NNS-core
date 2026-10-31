@@ -9,6 +9,7 @@ set(NNSCORE_CPP_TESTS
     test_degree_validation
     test_central_tendencies
     test_internal_functions
+    test_fast_lm
 )
 
 foreach(test_name IN LISTS NNSCORE_CPP_TESTS)
