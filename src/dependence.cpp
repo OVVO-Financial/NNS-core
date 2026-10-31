@@ -1,6 +1,6 @@
 // src/dependence.cpp
 //
-// Implementation extracted from NNS 13.0 NNS_dep.cpp. Decoupled from Rcpp.
+// Implementation extracted from NNS NNS_dep.cpp (synced to R 13.3, 82a92eb). Decoupled from Rcpp.
 //
 // SPDX-License-Identifier: GPL-3.0-only
 #include "nns/dependence.hpp"

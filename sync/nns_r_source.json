@@ -1,12 +1,44 @@
 {
   "r_repo": "OVVO-Financial/NNS",
-  "r_commit": "905b8bbd42b3236bf88aba7f18df7a9a378dbd7b",
-  "r_version": "13.0",
-  "r_src_tree_hash": "03ac013e5cdaa606300eea2b5c0ac16aa23a61362b555d5522e42eccd069d581",
+  "r_commit": "82a92eb45c1a1892acce82e66175cf2e29434b65",
+  "r_version": "13.3",
+  "r_src_tree_hash": "c94cfbcbc3c0051696ac64b60b2746bcc6f34fd46bf5447a211e010b8f166818",
   "core_repo": "OVVO-Financial/NNS-core",
-  "core_commit": "7f93df9dff8762df870c1fbba6e03c0469be6e69",
+  "core_commit": "505568568d871b48a0d79020a1e7d29b2487bcd5",
   "source_paths": [
     "src"
   ],
-  "notes": "NNS-core is the portable C++ extraction of the R NNS src layer. The R repo remains authoritative."
+  "notes": "NNS-core is the portable C++ extraction of the R NNS src layer. The R repo remains authoritative. r_commit/r_src_tree_hash identify the R src tree the core was ported from (original_src/ holds the corresponding R files byte for byte); core_commit is the last NNS-core commit that ported numerics from it. `r_bug_fixes` lists R bugs that NNS-core fixes ahead of R: there the core intentionally differs from this r_commit, and the fidelity suite tags the affected cases with `r_fix`.",
+  "r_bug_fixes": [
+    {
+      "id": "CORE-01",
+      "r_src": "src/partial_moments.h",
+      "summary": "vectorised (>32 targets) LPM/UPM prefix backend cancels catastrophically for degree >= 3; replaced by a cancellation-free sorted-anchor recurrence"
+    },
+    {
+      "id": "CORE-07",
+      "r_src": "src/central_tendencies.cpp",
+      "summary": "discrete NNS.mode keyed on int (UB beyond the int range, 3e9 -> -2147483648)"
+    },
+    {
+      "id": "CORE-08",
+      "r_src": "src/central_tendencies.cpp",
+      "summary": "gravity/mode histogram bin count unbounded and computed as int; long empty runs are now shortened (bit-identical results, O(n) bins)"
+    },
+    {
+      "id": "CORE-12",
+      "r_src": "src/central_tendencies.cpp",
+      "summary": "smooth_counts_tri7 heap over-read with <= 3 bins"
+    },
+    {
+      "id": "CORE-13",
+      "r_src": "src/internal_functions.cpp",
+      "summary": "generate.vectors lag > n out-of-bounds read; generate.lin.vectors(x, 0) division by zero"
+    },
+    {
+      "id": "CORE-16",
+      "r_src": "src/partial_moments.cpp",
+      "summary": "negative / NaN degrees silently accepted; now rejected"
+    }
+  ]
 }
