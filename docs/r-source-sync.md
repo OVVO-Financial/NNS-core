@@ -78,6 +78,32 @@ The `r_src_tree_hash` is a SHA-256 over the R `src/**` tree computed with
 `scripts/hash_r_src.py`. It is stable across machines because it hashes sorted
 relative file paths plus file bytes, never timestamps.
 
+## Current sync state and snapshot
+
+`sync/nns_r_source.json` records the R commit the core is ported from
+(`r_commit`, `r_version`, `r_src_tree_hash`) and `core_commit`, the last
+NNS-core commit that ported numerics from that tree. `original_src/` holds the
+R `src/` files the core maps to, byte for byte as they are at `r_commit`
+(including the R 13.1-13.3 M.reg/stack kernels and the `partial_moments_rcpp`
+wrappers), so `diff original_src/<file> <R checkout>/src/<file>` shows exactly
+what a future sync must port.
+
+The R-only files `nns_reg_points.cpp` and `table_ops.cpp` (exported but never
+called by the R package) are deliberately unmapped: a change to them is
+routed to manual review.
+
+## R bugs fixed ahead of R
+
+When NNS-core fixes a bug that also exists in the R `src/` layer, the core
+intentionally differs from `r_commit` until R takes the same fix. Every such
+fix is listed in `r_bug_fixes` in `sync/nns_r_source.json`, and the fidelity
+cases that exercise it carry an `r_fix` tag (`tests/fidelity/generate_truth.R`).
+Against an R build without the fix those cases are expected to differ;
+`scripts/run_fidelity.py --xfail-r-fixes` reports them as XFAIL (and as XPASS
+once R contains the fix) instead of failing the gate. All other cases must
+match. Remove an entry from `r_bug_fixes` (and its `r_fix` tags) once the
+synced R commit contains the fix.
+
 ## Conservative sync engine
 
 The sync workflow may automatically update `NNS-core`, but only within strict
