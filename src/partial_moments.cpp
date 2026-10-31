@@ -2,8 +2,10 @@
 //
 // Implementation extracted from NNS 13.0 src/partial_moments.{h,cpp}.
 // Every numerical rule (>= vs > boundaries, integer-degree fast powers,
-// median shift in the prefix backend, min/max-length recycling, population
-// adjustment gating, crossed DUPM/DLPM mirroring) is preserved verbatim.
+// min/max-length recycling, population adjustment gating, crossed DUPM/DLPM
+// mirroring) is preserved verbatim.  The vectorised (> 32 target) backend uses
+// a cancellation-free formulation instead of the upstream median-shifted
+// binomial expansion (see the comment above PrefixBackend).
 //
 // SPDX-License-Identifier: GPL-3.0-only
 
@@ -51,7 +53,28 @@ inline double upper_component(double diff, double degree, bool degree_is_int) {
                        : std::pow(diff, degree);
 }
 
-// --- prefix-power backend (port of nns_pm_detail, NNS 13.0) ----------------
+// --- sorted-anchor prefix backend (vectorised LPM/UPM, > 32 targets) -------
+//
+// NNS 13.0 introduced a prefix-power backend that expands
+//   sum_{x_i <= t} (t - x_i)^d
+// binomially around the sample median and evaluates it from running power
+// sums.  The alternating terms of that expansion cancel catastrophically for
+// d >= 3 (and for d = 2 in the tails), producing negative or grossly wrong
+// partial moments.  This backend keeps the O((n + m) log n) cost but anchors
+// every expansion at an adjacent order statistic, so that all terms are
+// non-negative and no cancellation can occur:
+//
+//   lower_j(k) = sum_{i < k}  (x_(k-1) - x_(i))^j   (anchor = largest point <= t)
+//   upper_j(k) = sum_{i >= k} (x_(i) - x_(k))^j     (anchor = smallest point > t)
+//
+// Both tables are built with the exact recurrence
+//   lower_j(k+1) = sum_{l <= j} C(j,l) delta^(j-l) lower_l(k) + [j == 0],
+//   delta = x_(k) - x_(k-1) >= 0,
+// and a target t with k = #{x_i <= t} is evaluated as
+//   LPM = sum_j C(d,j) (t - x_(k-1))^(d-j) lower_j(k) / n
+//   UPM = sum_j C(d,j) (x_(k) - t)^(d-j)   upper_j(k) / n,
+// again a sum of non-negative terms.  The result agrees with the direct scan
+// to rounding for every supported degree.
 
 constexpr int kPrefixMaxDegree = 32;
 constexpr std::size_t kDirectPathMaxTargets = 32;  // NNS_DIRECT_PATH_MAX_TARGETS
@@ -65,33 +88,16 @@ bool prefix_supported_degree(double degree, int& degree_int) {
   return true;
 }
 
-std::vector<double> binomial_coefficients(int degree) {
-  std::vector<double> choose(static_cast<std::size_t>(degree) + 1U, 1.0);
-  for (int j = 1; j < degree; ++j) {
-    choose[static_cast<std::size_t>(j)] =
-        choose[static_cast<std::size_t>(j - 1)] *
-        static_cast<double>(degree - j + 1) / static_cast<double>(j);
-  }
-  return choose;
-}
-
 struct PrefixBackend {
   std::vector<double> sorted;
-  std::vector<std::vector<double>> prefix_power;
-  std::vector<double> total_power;
-  std::vector<double> choose;
+  std::vector<double> lower;   // (n + 1) x (degree + 1), row k = lower_j(k)
+  std::vector<double> upper;   // (n + 1) x (degree + 1), row k = upper_j(k)
+  std::vector<double> pascal;  // (degree + 1) x (degree + 1), C(j, l)
   std::size_t n;
   int degree;
-  double shift;
 
   PrefixBackend(const double* variable, std::size_t n_, int degree_)
-      : sorted(variable, variable + n_),
-        prefix_power(static_cast<std::size_t>(degree_) + 1U),
-        total_power(static_cast<std::size_t>(degree_) + 1U, 0.0),
-        choose(binomial_coefficients(degree_)),
-        n(n_),
-        degree(degree_),
-        shift(0.0) {
+      : sorted(variable, variable + n_), n(n_), degree(degree_) {
     for (std::size_t i = 0; i < n; ++i) {
       if (!std::isfinite(sorted[i])) {  // defensive guard, as upstream
         sorted.clear();
@@ -100,22 +106,61 @@ struct PrefixBackend {
       }
     }
     std::sort(sorted.begin(), sorted.end());
-    shift = sorted[n / 2U];
-    for (int p = 0; p <= degree; ++p)
-      prefix_power[static_cast<std::size_t>(p)].assign(n + 1U, 0.0);
-    for (std::size_t i = 0; i < n; ++i) {
-      const double x = sorted[i] - shift;
-      double x_power = 1.0;
-      for (int p = 0; p <= degree; ++p) {
-        const std::size_t ps = static_cast<std::size_t>(p);
-        prefix_power[ps][i + 1U] = prefix_power[ps][i] + x_power;
-        x_power *= x;
+    const std::size_t w = static_cast<std::size_t>(degree) + 1U;
+
+    pascal.assign(w * w, 0.0);
+    for (std::size_t j = 0; j < w; ++j) {
+      pascal[j * w] = 1.0;
+      for (std::size_t l = 1; l <= j; ++l)
+        pascal[j * w + l] = pascal[(j - 1U) * w + l - 1U] +
+                            (l < j ? pascal[(j - 1U) * w + l] : 0.0);
+    }
+
+    lower.assign((n + 1U) * w, 0.0);
+    upper.assign((n + 1U) * w, 0.0);
+    if (n == 0U) return;
+    std::vector<double> dpow(w);
+
+    lower[1U * w] = 1.0;  // k = 1: the single point equals its anchor
+    for (std::size_t k = 1; k < n; ++k) {
+      fill_powers(sorted[k] - sorted[k - 1U], dpow);
+      step(&lower[k * w], &lower[(k + 1U) * w], dpow);
+    }
+    upper[(n - 1U) * w] = 1.0;  // k = n - 1: the single point equals its anchor
+    for (std::size_t k = n - 1U; k > 0; --k) {
+      fill_powers(sorted[k] - sorted[k - 1U], dpow);
+      step(&upper[k * w], &upper[(k - 1U) * w], dpow);
+    }
+  }
+
+  void fill_powers(double base, std::vector<double>& pw) const {
+    pw[0] = 1.0;
+    for (std::size_t p = 1; p < pw.size(); ++p) pw[p] = pw[p - 1U] * base;
+  }
+
+  // next_j = sum_{l <= j} C(j,l) delta^(j-l) prev_l + [j == 0]
+  void step(const double* prev, double* next, const std::vector<double>& dpow) const {
+    const std::size_t w = static_cast<std::size_t>(degree) + 1U;
+    for (std::size_t j = 0; j < w; ++j) {
+      double acc = (j == 0U) ? 1.0 : 0.0;
+      for (std::size_t l = 0; l <= j; ++l) {
+        if (prev[l] != 0.0) acc += pascal[j * w + l] * dpow[j - l] * prev[l];
       }
+      next[j] = acc;
     }
-    for (int p = 0; p <= degree; ++p) {
-      const std::size_t ps = static_cast<std::size_t>(p);
-      total_power[ps] = prefix_power[ps][n];
+  }
+
+  // sum_j C(d,j) gap^(d-j) sums_j, all terms >= 0.
+  double combine(const double* sums, double gap) const {
+    const std::size_t d = static_cast<std::size_t>(degree);
+    const std::size_t w = d + 1U;
+    double out = 0.0;
+    double gpow = 1.0;  // gap^(d-j), built from j = d downwards
+    for (std::size_t jj = w; jj-- > 0U;) {
+      if (sums[jj] != 0.0) out += pascal[d * w + jj] * gpow * sums[jj];
+      gpow *= gap;
     }
+    return out;
   }
 
   bool ok() const { return n > 0U; }
@@ -129,51 +174,21 @@ struct PrefixBackend {
   double lpm(double target) const {
     if (!std::isfinite(target)) return kNaN;
     const std::size_t k = count_leq(target);
-    const double tc = target - shift;
     const double nd = static_cast<double>(n);
     if (degree == 0) return static_cast<double>(k) / nd;
-    if (degree == 1)
-      return (static_cast<double>(k) * tc - prefix_power[1][k]) / nd;
-    if (degree == 2) {
-      const double t2 = tc * tc;
-      return (static_cast<double>(k) * t2 - 2.0 * tc * prefix_power[1][k] +
-              prefix_power[2][k]) /
-             nd;
-    }
-    double out = 0.0;
-    for (int j = 0; j <= degree; ++j) {
-      const std::size_t js = static_cast<std::size_t>(j);
-      const double sign = (j % 2 == 0) ? 1.0 : -1.0;
-      out += choose[js] * sign * std::pow(tc, static_cast<double>(degree - j)) *
-             prefix_power[js][k];
-    }
-    return out / nd;
+    if (k == 0U) return 0.0;
+    const std::size_t w = static_cast<std::size_t>(degree) + 1U;
+    return combine(&lower[k * w], target - sorted[k - 1U]) / nd;
   }
 
   double upm(double target) const {
     if (!std::isfinite(target)) return kNaN;
     const std::size_t k = count_leq(target);
-    const double tc = target - shift;
-    const std::size_t above = n - k;
     const double nd = static_cast<double>(n);
-    if (degree == 0) return static_cast<double>(above) / nd;
-    const double suffix1 = total_power[1] - prefix_power[1][k];
-    if (degree == 1) return (suffix1 - static_cast<double>(above) * tc) / nd;
-    if (degree == 2) {
-      const double suffix2 = total_power[2] - prefix_power[2][k];
-      const double t2 = tc * tc;
-      return (suffix2 - 2.0 * tc * suffix1 + static_cast<double>(above) * t2) /
-             nd;
-    }
-    double out = 0.0;
-    for (int j = 0; j <= degree; ++j) {
-      const std::size_t js = static_cast<std::size_t>(j);
-      const double suffix_j = total_power[js] - prefix_power[js][k];
-      const double sign = ((degree - j) % 2 == 0) ? 1.0 : -1.0;
-      out += choose[js] * sign * std::pow(tc, static_cast<double>(degree - j)) *
-             suffix_j;
-    }
-    return out / nd;
+    if (degree == 0) return static_cast<double>(n - k) / nd;
+    if (k == n) return 0.0;
+    const std::size_t w = static_cast<std::size_t>(degree) + 1U;
+    return combine(&upper[k * w], sorted[k] - target) / nd;
   }
 
   std::pair<double, double> both(double target) const {
