@@ -23,6 +23,9 @@ struct PMMatrixResult {
   std::size_t dim = 0;
 };
 
+// All degree arguments must be >= 0; every function below throws
+// std::invalid_argument for a negative or NaN degree.
+
 double lpm(double degree, double target, const double* x, std::size_t n);
 double upm(double degree, double target, const double* x, std::size_t n);
 

@@ -20,6 +20,7 @@
 #include <limits>
 #include <memory>
 #include <stdexcept>
+#include <string>
 #include <utility>
 
 #include "nns/parallel.hpp"
@@ -38,6 +39,17 @@ inline double repeat_multiplication(double value, int n) {
 }
 
 inline bool is_integer(double v) { return v == static_cast<double>(static_cast<int>(v)); }
+
+// Partial moments are defined for degree >= 0 only. A negative degree used to
+// be silently evaluated as the degree-0 count on the integer fast path
+// (repeat_multiplication with n < 0 returns 1), and NaN reached
+// static_cast<int>(NaN), which is undefined behaviour.
+inline void check_degree(double degree, const char* what = "degree") {
+  if (!(degree >= 0.0)) {
+    throw std::invalid_argument(std::string("`") + what +
+                                "` must be a non-negative number");
+  }
+}
 
 inline double lower_component(double diff, double degree, bool degree_is_int) {
   if (degree == 0) return diff >= 0.0 ? 1.0 : 0.0;
@@ -212,6 +224,7 @@ std::shared_ptr<const PrefixBackend> make_prefix_backend(double degree,
 // --- univariate scalar kernels (ports of LPM_C / UPM_C) --------------------
 
 double lpm(double degree, double target, const double* x, std::size_t n) {
+  check_degree(degree);
   double out = 0;
   const bool deg_is_int = is_integer(degree);
   for (std::size_t i = 0; i < n; ++i) {
@@ -234,6 +247,7 @@ double lpm(double degree, double target, const double* x, std::size_t n) {
 }
 
 double upm(double degree, double target, const double* x, std::size_t n) {
+  check_degree(degree);
   double out = 0;
   const bool deg_is_int = is_integer(degree);
   for (std::size_t i = 0; i < n; ++i) {
@@ -265,6 +279,7 @@ template <PMKind K>
 void pm_vectorized(double degree, const double* target, std::size_t n_targets,
                    const double* x, std::size_t n, double* out,
                    int n_threads) {
+  check_degree(degree);
   // Direct path for few targets: bit-identical to pre-13.0 semantics and
   // avoids building the prefix backend (port of the <=32 guard).
   const bool few_targets = n_targets <= kDirectPathMaxTargets;
@@ -349,6 +364,8 @@ void upm_ratio_v(double degree, const double* target, std::size_t n_targets,
 double co_upm(double degree_x, double degree_y, const double* x,
               const double* y, std::size_t n_x, std::size_t n_y,
               double target_x, double target_y) {
+  check_degree(degree_x, "degree_x");
+  check_degree(degree_y, "degree_y");
   const std::size_t max_size = (n_x > n_y ? n_x : n_y);
   const std::size_t min_size = (n_x < n_y ? n_x : n_y);
   if (min_size == 0) return 0;
@@ -380,6 +397,8 @@ double co_upm(double degree_x, double degree_y, const double* x,
 double co_lpm(double degree_x, double degree_y, const double* x,
               const double* y, std::size_t n_x, std::size_t n_y,
               double target_x, double target_y) {
+  check_degree(degree_x, "degree_x");
+  check_degree(degree_y, "degree_y");
   const std::size_t max_size = (n_x > n_y ? n_x : n_y);
   const std::size_t min_size = (n_x < n_y ? n_x : n_y);
   if (min_size == 0) return 0;
@@ -411,6 +430,8 @@ double co_lpm(double degree_x, double degree_y, const double* x,
 double d_lpm(double degree_lpm, double degree_upm, const double* x,
              const double* y, std::size_t n_x, std::size_t n_y,
              double target_x, double target_y) {
+  check_degree(degree_lpm, "degree_lpm");
+  check_degree(degree_upm, "degree_upm");
   const std::size_t max_size = (n_x > n_y ? n_x : n_y);
   const std::size_t min_size = (n_x < n_y ? n_x : n_y);
   if (min_size == 0) return 0;
@@ -449,6 +470,8 @@ double d_lpm(double degree_lpm, double degree_upm, const double* x,
 double d_upm(double degree_lpm, double degree_upm, const double* x,
              const double* y, std::size_t n_x, std::size_t n_y,
              double target_x, double target_y) {
+  check_degree(degree_lpm, "degree_lpm");
+  check_degree(degree_upm, "degree_upm");
   const std::size_t max_size = (n_x > n_y ? n_x : n_y);
   const std::size_t min_size = (n_x < n_y ? n_x : n_y);
   if (min_size == 0) return 0;
@@ -508,6 +531,9 @@ void co_lpm_v(double degree_x, double degree_y, const double* x,
               const double* y, std::size_t n_x, std::size_t n_y,
               const double* target_x, std::size_t n_tx, const double* target_y,
               std::size_t n_ty, double* out, int n_threads) {
+  // Validate before the parallel region: an exception must not escape a worker.
+  check_degree(degree_x, "degree_x");
+  check_degree(degree_y, "degree_y");
   two_var_vectorized(
       [&](double tx, double ty) {
         return co_lpm(degree_x, degree_y, x, y, n_x, n_y, tx, ty);
@@ -519,6 +545,9 @@ void co_upm_v(double degree_x, double degree_y, const double* x,
               const double* y, std::size_t n_x, std::size_t n_y,
               const double* target_x, std::size_t n_tx, const double* target_y,
               std::size_t n_ty, double* out, int n_threads) {
+  // Validate before the parallel region: an exception must not escape a worker.
+  check_degree(degree_x, "degree_x");
+  check_degree(degree_y, "degree_y");
   two_var_vectorized(
       [&](double tx, double ty) {
         return co_upm(degree_x, degree_y, x, y, n_x, n_y, tx, ty);
@@ -530,6 +559,9 @@ void d_lpm_v(double degree_lpm, double degree_upm, const double* x,
              const double* y, std::size_t n_x, std::size_t n_y,
              const double* target_x, std::size_t n_tx, const double* target_y,
              std::size_t n_ty, double* out, int n_threads) {
+  // Validate before the parallel region: an exception must not escape a worker.
+  check_degree(degree_lpm, "degree_lpm");
+  check_degree(degree_upm, "degree_upm");
   two_var_vectorized(
       [&](double tx, double ty) {
         return d_lpm(degree_lpm, degree_upm, x, y, n_x, n_y, tx, ty);
@@ -541,6 +573,9 @@ void d_upm_v(double degree_lpm, double degree_upm, const double* x,
              const double* y, std::size_t n_x, std::size_t n_y,
              const double* target_x, std::size_t n_tx, const double* target_y,
              std::size_t n_ty, double* out, int n_threads) {
+  // Validate before the parallel region: an exception must not escape a worker.
+  check_degree(degree_lpm, "degree_lpm");
+  check_degree(degree_upm, "degree_upm");
   two_var_vectorized(
       [&](double tx, double ty) {
         return d_upm(degree_lpm, degree_upm, x, y, n_x, n_y, tx, ty);
@@ -669,6 +704,7 @@ double dpm_nd_impl(const double* data, std::size_t n, std::size_t d,
 
 double clpm_nd(const double* data, std::size_t n, std::size_t d,
                const double* target, double degree, bool norm, int n_threads) {
+  check_degree(degree);
   check_nd_args(n, d);
   const double clpm_un = clpm_nd_impl(data, n, d, target, degree, n_threads);
   if (degree == 0.0 || !norm) return clpm_un;
@@ -680,6 +716,7 @@ double clpm_nd(const double* data, std::size_t n, std::size_t d,
 
 double cupm_nd(const double* data, std::size_t n, std::size_t d,
                const double* target, double degree, bool norm, int n_threads) {
+  check_degree(degree);
   check_nd_args(n, d);
   const double cupm_un = cupm_nd_impl(data, n, d, target, degree, n_threads);
   if (degree == 0.0 || !norm) return cupm_un;
@@ -691,6 +728,7 @@ double cupm_nd(const double* data, std::size_t n, std::size_t d,
 
 double dpm_nd(const double* data, std::size_t n, std::size_t d,
               const double* target, double degree, bool norm, int n_threads) {
+  check_degree(degree);
   check_nd_args(n, d);
   const double dpm_un = dpm_nd_impl(data, n, d, target, degree, n_threads);
   if (degree == 0.0 || !norm) return dpm_un;
@@ -705,6 +743,7 @@ double dpm_nd(const double* data, std::size_t n, std::size_t d,
 void clpm_nd_batch(const double* data, std::size_t n, std::size_t d,
                    const double* targets, std::size_t n_targets, double degree,
                    bool norm, double* out, int n_threads) {
+  check_degree(degree);
   if (n == 0) throw std::invalid_argument("`data` must have at least one row");
   const bool deg_is_int = is_integer(degree);
 
@@ -769,6 +808,8 @@ PMMatrixResult pm_matrix(double degree_lpm, double degree_upm,
                          const double* target, const double* variable,
                          std::size_t n, std::size_t d, bool pop_adj, bool norm,
                          int n_threads) {
+  check_degree(degree_lpm, "degree_lpm");
+  check_degree(degree_upm, "degree_upm");
   // Mirrors Rcpp::stop("variable matrix cols != target vector length") —
   // bindings pass target length separately, so enforce d > 0 here and let
   // the binding layer validate target length against d before calling.
