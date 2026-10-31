@@ -34,6 +34,15 @@ int main() {
   check(ge.series[1].empty(), "lag 1e6 > n gives an empty component");
   check(nns::generate_vectors(x.data(), 0, lags, 1).series[0].empty(), "n = 0");
 
+  // len (R 13.3): only the first len elements are the active series.
+  const nns::TimeSeriesVectors gl = nns::generate_vectors(x.data(), x.size(), lags, 1, 7);
+  const nns::TimeSeriesVectors g7 = nns::generate_vectors(x.data(), 7, lags, 1);
+  check(gl.series[0] == g7.series[0] && gl.series[0] == std::vector<double>({2, 5}),
+        "len = 7 equals the first 7 elements");
+  check(nns::generate_vectors(x.data(), x.size(), lags, 1, -1).series[0] == gv.series[0],
+        "len = -1 uses the full length");
+  check_throws("len > n", [&] { nns::generate_vectors(x.data(), 3, lags, 1, 4); });
+
   // NNS:::generate.lin.vectors(as.numeric(1:10), 3L, 5L)
   const nns::ForecastVectors lv = nns::generate_lin_vectors(x.data(), x.size(), 3, 5);
   check(lv.series[0] == std::vector<double>({2, 5, 8}), "lin component 1");

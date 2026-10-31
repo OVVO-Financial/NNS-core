@@ -191,7 +191,11 @@ bool is_discrete(const double* x, std::size_t n) {
 
 // ---------- Vector Generation ----------
 
-TimeSeriesVectors generate_vectors(const double* x, std::size_t n, const int* lags, std::size_t num_lags) {
+TimeSeriesVectors generate_vectors(const double* x, std::size_t n, const int* lags, std::size_t num_lags,
+                                   long long len) {
+  if (len > static_cast<long long>(n))
+    throw std::invalid_argument("generate_vectors: `len` must not exceed the length of x");
+  if (len >= 0) n = static_cast<std::size_t>(len);
   TimeSeriesVectors res;
   res.series.resize(num_lags);
   res.index.resize(num_lags);
