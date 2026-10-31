@@ -8,6 +8,7 @@
 #include <algorithm>
 #include <cctype>
 #include <cmath>
+#include <cstdint>
 #include <limits>
 #include <stdexcept>
 #include <unordered_map>
@@ -73,26 +74,75 @@ void quartiles_like_R_code(const std::vector<double>& xs, double& q1, double& q2
   }
 }
 
-// Minimal replacement for NNS_bin used by mode/gravity
+// Minimal replacement for NNS_bin used by mode/gravity.
+//
+// Bins are [origin + k*width, origin + (k+1)*width), k = 0 .. nbins-1, with
+// nbins = floor((max - origin) / width + 1e-12) + 1 and each value assigned to
+// floor((v - origin) / width) clipped to the last bin, exactly as NNS 13.3.
+//
+// The bin count is not bounded by n: a tight IQR plus one outlier gives
+// hundreds of millions of bins (seconds and GBs for n = 1001), and beyond
+// INT_MAX the old `int` cast was undefined behaviour. Every consumer (gravity
+// and the continuous mode) only looks at counts within 6 bins of a non-empty
+// bin, so runs of more than kMaxEmptyRun empty bins are shortened to
+// kMaxEmptyRun bins (the first and last kMaxEmptyRun / 2 of the run, with their
+// true names). Gravity and mode are then bit-identical to the full histogram
+// while memory and time are O(n). Indices are computed in double / int64, and
+// only a width so small that the true bin count exceeds 2^52 (previously UB or
+// an allocation failure) is widened to (max - origin) / 2^52.
+constexpr std::int64_t kMaxEmptyRun = 16;
+constexpr double kMaxBinIndex = 4503599627370496.0;  // 2^52
+
 void simple_bin_counts(const std::vector<double>& xs, double width, double origin,
                        std::vector<double>& bin_names, std::vector<int>& counts) {
-  const int l = static_cast<int>(xs.size());
-  if (l == 0) { bin_names.clear(); counts.clear(); return; }
-  
+  bin_names.clear();
+  counts.clear();
+  if (xs.empty()) return;
+
   const double xmax = xs.back();
-  int nbins = static_cast<int>(std::floor((xmax - origin) / width + 1e-12)) + 1;
-  if (nbins < 1) nbins = 1;
-  
-  bin_names.resize(nbins);
-  for (int k = 0; k < nbins; ++k) bin_names[k] = origin + k * width;
-  
-  counts.assign(nbins, 0);
-  for (double v : xs) {
-    int idx = static_cast<int>(std::floor((v - origin) / width));
-    if (idx < 0) idx = 0;
-    if (idx >= nbins) idx = nbins - 1;
-    counts[idx] += 1;
+  double last = std::floor((xmax - origin) / width + 1e-12);
+  if (!(last < kMaxBinIndex)) {
+    width = (xmax - origin) / kMaxBinIndex;
+    last = std::floor((xmax - origin) / width + 1e-12);
+    if (!(last < kMaxBinIndex)) last = kMaxBinIndex;
   }
+  const std::int64_t nbins = (last >= 0.0) ? static_cast<std::int64_t>(last) + 1 : 1;
+  const std::int64_t cap = static_cast<std::int64_t>(xs.size()) * (kMaxEmptyRun + 1) + kMaxEmptyRun;
+  bin_names.reserve(static_cast<std::size_t>(std::min(nbins, cap)));
+  counts.reserve(static_cast<std::size_t>(std::min(nbins, cap)));
+
+  auto push_bin = [&](std::int64_t k, int c) {
+    bin_names.push_back(origin + static_cast<double>(k) * width);
+    counts.push_back(c);
+  };
+  // Emit the empty bins first .. last (inclusive), shortening long runs.
+  auto push_empty_run = [&](std::int64_t first, std::int64_t last_bin) {
+    const std::int64_t len = last_bin - first + 1;
+    if (len <= 0) return;
+    if (len <= kMaxEmptyRun) {
+      for (std::int64_t k = first; k <= last_bin; ++k) push_bin(k, 0);
+      return;
+    }
+    const std::int64_t half = kMaxEmptyRun / 2;
+    for (std::int64_t k = first; k < first + half; ++k) push_bin(k, 0);
+    for (std::int64_t k = last_bin - half + 1; k <= last_bin; ++k) push_bin(k, 0);
+  };
+
+  // xs is sorted, so bin indices are non-decreasing.
+  const double top = static_cast<double>(nbins - 1);
+  std::int64_t prev = -1;
+  for (double v : xs) {
+    const double q = std::floor((v - origin) / width);
+    const std::int64_t k = (q < 0.0) ? 0 : (q >= top ? nbins - 1 : static_cast<std::int64_t>(q));
+    if (k == prev) {
+      ++counts.back();
+      continue;
+    }
+    push_empty_run(prev + 1, k - 1);
+    push_bin(k, 1);
+    prev = k;
+  }
+  push_empty_run(prev + 1, nbins - 1);
 }
 
 // Triangular smoothing helper: 7-tap [1,2,3,4,3,2,1] with mirrored edges
