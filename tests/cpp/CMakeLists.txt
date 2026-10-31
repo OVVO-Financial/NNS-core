@@ -6,6 +6,7 @@
 set(NNSCORE_CPP_TESTS
     smoke_partial_moments
     test_prefix_backend
+    test_degree_validation
 )
 
 foreach(test_name IN LISTS NNSCORE_CPP_TESTS)
