@@ -10,6 +10,7 @@ set(NNSCORE_CPP_TESTS
     test_central_tendencies
     test_internal_functions
     test_fast_lm
+    test_partition
 )
 
 foreach(test_name IN LISTS NNSCORE_CPP_TESTS)
