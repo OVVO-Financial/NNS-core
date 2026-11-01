@@ -1,9 +1,19 @@
 # C++ tests for NNS-core.
 #
-# Currently a dependency-free smoke test exercising the core partial moment
-# functions. Catch2-based conformance tests can be added here later.
+# Dependency-free test binaries (see check.hpp); each exits non-zero on
+# failure so it can be driven by ctest.
 
-add_executable(smoke_partial_moments smoke_partial_moments.cpp)
-target_link_libraries(smoke_partial_moments PRIVATE nnscore)
+set(NNSCORE_CPP_TESTS
+    smoke_partial_moments
+    test_prefix_backend
+    test_degree_validation
+    test_central_tendencies
+    test_internal_functions
+    test_fast_lm
+)
 
-add_test(NAME smoke_partial_moments COMMAND smoke_partial_moments)
+foreach(test_name IN LISTS NNSCORE_CPP_TESTS)
+    add_executable(${test_name} ${test_name}.cpp)
+    target_link_libraries(${test_name} PRIVATE nnscore)
+    add_test(NAME ${test_name} COMMAND ${test_name})
+endforeach()
