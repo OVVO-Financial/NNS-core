@@ -266,7 +266,7 @@ DepMatrixResult dep_matrix(const double* X, std::size_t n, std::size_t p,
       }
       all_quads[j] = std::move(quad);
     }
-  }, nthreads);
+  }, nthreads, n * 8U);  // ~log2(n) hashing passes over n rows
   
   // Phase 2: Compute Pairwise Dependence
   std::vector<double> corr_upper(n_pairs, 0.0);
@@ -310,7 +310,7 @@ DepMatrixResult dep_matrix(const double* X, std::size_t n, std::size_t p,
         dep_lower[idx]  = dep_upper[idx];
       }
     }
-  }, nthreads);
+  }, nthreads, n * 16U);  // dep_pair: several passes over n rows
   
   // Phase 3: Construct the final Column-Major output matrices
   DepMatrixResult result;

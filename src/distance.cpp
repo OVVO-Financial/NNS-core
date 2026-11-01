@@ -483,7 +483,7 @@ std::vector<double> distance_path_parallel(const double* RPM, std::size_t l, std
         }
       }
     }
-  }, nthreads);
+  }, nthreads, l * n + static_cast<std::size_t>(kmax) * static_cast<std::size_t>(kmax));
   
   return out;
 }
@@ -620,7 +620,7 @@ std::vector<double> distance_path_single_parallel(const double* RPM, std::size_t
         out[r] = mode_class_weighted(topY, w);
       }
     }
-  }, nthreads);
+  }, nthreads, l * n + static_cast<std::size_t>(k));
   
   return out;
 }
