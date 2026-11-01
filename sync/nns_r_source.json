@@ -49,6 +49,26 @@
       "id": "MREG-DIV",
       "r_src": "src/NNS_mreg_predict.cpp",
       "summary": "native M.reg distances multiplied by a precomputed 1/range, which rounds differently from the R reference's division and can flip exact nearest-neighbour ties (50 vs 100)"
+    },
+    {
+      "id": "CORE-09",
+      "r_src": "src/partial_moments.cpp, src/NNS_dep.cpp",
+      "summary": "degree-0 Co.UPM_nD/DPM_nD and the bivariate copula's discordant count treated ties inconsistently, so CLPM + CUPM + DPM did not partition the sample"
+    },
+    {
+      "id": "CORE-03",
+      "r_src": "src/NNS_mreg_setup.cpp",
+      "summary": "native noise.reduction = \"mode\" reducer took the most frequent exact value instead of NNS.mode, unlike R's own pure-R path"
+    },
+    {
+      "id": "DEP-01",
+      "r_src": "src/NNS_dep.cpp",
+      "summary": "copula_signed returned +1 for fully discordant cells, so NNS.dep(x, -x) reported Correlation +1"
+    },
+    {
+      "id": "DEP-08",
+      "r_src": "src/NNS_dep.cpp",
+      "summary": "copula_signed compared the concordant share count * (1/n) with 1, false for many n (49 * (1/49) != 1)"
     }
   ]
 }
