@@ -99,6 +99,11 @@
       "id": "SDA-09",
       "r_src": "src/SD.cpp",
       "summary": "SD verdicts compared curves exactly, so rounding noise decided them; now a 64 * DBL_EPSILON relative tie tolerance with compensated prefix sums"
+    },
+    {
+      "id": "TS-04",
+      "r_src": "src/NNS_seas.cpp",
+      "summary": "NNS.seas scored three reverse-stride subsamples per lag with an unweighted mean and <=, instead of all m component series weighted by length with <; a mean of exactly 0 fell back to 1/|acf1| and a near-zero mean was not caught"
     }
   ]
 }

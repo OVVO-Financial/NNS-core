@@ -486,6 +486,31 @@ zr <- round(qnorm(ppoints(1e4)), 1)
 add_sd("tol_spread_1e4_d2", 2, 0.1 * zr + 0.3, 0.2 * zr + 0.3, r_fix = "SDA-09")
 add_sd("tol_spread_1e4_d3", 3, 0.1 * zr + 0.3, 0.2 * zr + 0.3, r_fix = "SDA-09")
 
+# ---- seasonality (NNS_seas_cpp) ---------------------------------------------
+# R 13.3 scored three reverse-stride subsamples per lag; R now scores all m
+# component series, weighted by length, with < and a near-zero-mean sd rule.
+add_seas <- function(name, x, modulo = NULL, mod_only = TRUE, r_fix = "TS-04") {
+  s <- NNS:::NNS_seas_cpp(as.numeric(x), if (is.null(modulo)) NULL else as.integer(modulo), mod_only)
+  ap <- s$all.periods
+  vec <- list(x = x)
+  if (!is.null(modulo)) vec$modulo <- modulo
+  add_case(sprintf("seas_%s", name), "seasonality",
+           c(s$best.period, ap$Period, ap$Coefficient.of.Variation,
+             ap$Variable.Coefficient.of.Variation),
+           scalars = list(mod_only = mod_only), vectors = vec, r_fix = r_fix)
+}
+ap_x <- as.numeric(AirPassengers)
+add_seas("airpassengers", ap_x)
+add_seas("airpassengers_mod12", ap_x, 12)
+add_seas("airpassengers_mod12_all", ap_x, 12, mod_only = FALSE)
+add_seas("lynx", as.numeric(lynx))
+add_seas("toy", c(10, 18, 11, 21, 12, 20, 13, 23))
+add_seas("odd", ap_x[1:143])
+sz <- sin(2 * pi * (1:96) / 12)
+add_seas("zero_mean", sz - mean(sz))
+add_seas("constant", rep(5, 20))
+add_seas("short", c(1, 2, 3, 4), r_fix = NULL)
+
 body <- paste(unlist(cases), collapse = ",\n")
 json <- paste0(
   "{\n",

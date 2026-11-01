@@ -24,7 +24,7 @@
 // d_upm co_lpm_v co_upm_v d_lpm_v d_upm_v clpm_nd cupm_nd dpm_nd
 // clpm_nd_batch pm_matrix gravity mode partition dep_matrix dep_pair distance_path
 // distance_bulk fast_lm duplicate_column_map mreg_setup mreg_predict
-// mreg_predict_path xstar_path sd_uni.
+// mreg_predict_path xstar_path sd_uni seasonality.
 //
 // SPDX-License-Identifier: GPL-3.0-only
 #include "nns/nns.hpp"
@@ -287,6 +287,19 @@ std::vector<double> evaluate(const std::string& func, const Flags& f) {
       out.push_back(nns::tsd_uni(x.data(), x.size(), y.data(), y.size()));
     else
       die("sd_uni: degree must be 1, 2 or 3");
+  } else if (func == "seasonality") {
+    // Output: best period, then the periods, CVs and series CVs of all.periods.
+    const std::vector<double> x = list(f, "x");
+    std::vector<int> mods;
+    if (has(f, "modulo"))
+      for (double m : list(f, "modulo")) mods.push_back(static_cast<int>(m));
+    const nns::SeasonalityResult r = nns::seasonality(
+        x.data(), x.size(), mods.empty() ? nullptr : mods.data(), mods.size(),
+        flag(f, "mod_only", true));
+    out.push_back(r.best_period);
+    for (int p : r.all_periods) out.push_back(p);
+    append(out, r.all_coef_var);
+    append(out, r.all_var_coef_var);
   } else {
     die("unknown function: " + func);
   }
