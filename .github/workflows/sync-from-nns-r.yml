@@ -33,20 +33,51 @@ jobs:
       - name: Resolve payload
         id: payload
         shell: bash
+        # Event fields are passed through env, never interpolated into the
+        # script text, and validated before use (script-injection hardening).
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          PAYLOAD_R_COMMIT: ${{ github.event.client_payload.r_commit }}
+          PAYLOAD_R_VERSION: ${{ github.event.client_payload.r_version }}
+          PAYLOAD_R_HASH: ${{ github.event.client_payload.r_src_tree_hash }}
+          PAYLOAD_CHANGED: ${{ toJson(github.event.client_payload.changed_files) }}
+          INPUT_R_COMMIT: ${{ inputs.r_commit }}
+          INPUT_R_VERSION: ${{ inputs.r_version }}
+          INPUT_R_HASH: ${{ inputs.r_src_tree_hash }}
         run: |
           set -euo pipefail
 
-          if [ "${{ github.event_name }}" = "repository_dispatch" ]; then
-            echo "r_commit=${{ github.event.client_payload.r_commit }}" >> "$GITHUB_OUTPUT"
-            echo "r_version=${{ github.event.client_payload.r_version }}" >> "$GITHUB_OUTPUT"
-            echo "r_src_tree_hash=${{ github.event.client_payload.r_src_tree_hash }}" >> "$GITHUB_OUTPUT"
-            echo '${{ toJson(github.event.client_payload.changed_files) }}' > changed_files.json
+          if [ "$EVENT_NAME" = "repository_dispatch" ]; then
+            r_commit="$PAYLOAD_R_COMMIT"
+            r_version="$PAYLOAD_R_VERSION"
+            r_hash="$PAYLOAD_R_HASH"
+            changed="$PAYLOAD_CHANGED"
           else
-            echo "r_commit=${{ inputs.r_commit }}" >> "$GITHUB_OUTPUT"
-            echo "r_version=${{ inputs.r_version }}" >> "$GITHUB_OUTPUT"
-            echo "r_src_tree_hash=${{ inputs.r_src_tree_hash }}" >> "$GITHUB_OUTPUT"
-            echo '[]' > changed_files.json
+            r_commit="$INPUT_R_COMMIT"
+            r_version="$INPUT_R_VERSION"
+            r_hash="$INPUT_R_HASH"
+            changed="null"
           fi
+
+          if ! [[ "$r_commit" =~ ^[0-9a-fA-F]{7,40}$ ]]; then
+            echo "::error::r_commit is not a git sha" >&2; exit 1
+          fi
+          if ! [[ "$r_version" =~ ^[0-9A-Za-z._-]{1,32}$ ]]; then
+            echo "::error::r_version contains unexpected characters" >&2; exit 1
+          fi
+          if ! [[ "$r_hash" =~ ^[0-9a-fA-F]{0,64}$ ]]; then
+            echo "::error::r_src_tree_hash is not a hex digest" >&2; exit 1
+          fi
+
+          {
+            echo "r_commit=$r_commit"
+            echo "r_version=$r_version"
+            echo "r_src_tree_hash=$r_hash"
+          } >> "$GITHUB_OUTPUT"
+          # Validated as a JSON array of strings by the Python scripts; "null"
+          # (manual runs, or a dispatch without changed_files) is resolved
+          # from git history after the R checkout.
+          printf '%s\n' "$changed" > changed_files.json
 
       - name: Check out upstream R NNS
         uses: actions/checkout@v4
@@ -54,6 +85,33 @@ jobs:
           repository: OVVO-Financial/NNS
           ref: ${{ steps.payload.outputs.r_commit }}
           path: upstream/NNS
+          fetch-depth: 0
+
+      - name: Resolve changed R src files
+        shell: bash
+        run: |
+          set -euo pipefail
+          # Without changed_files, diff against the manifest commit; if that
+          # commit is not in the R history, treat every src file as changed.
+          if python - <<'PY'
+          import json, sys
+          data = json.load(open("changed_files.json"))
+          sys.exit(0 if isinstance(data, list) and data else 1)
+          PY
+          then
+            echo "Using changed_files from the dispatch payload."
+          else
+            prev="$(python -c 'import json; print(json.load(open("sync/nns_r_source.json")).get("r_commit", ""))')"
+            if [ -n "$prev" ] && git -C upstream/NNS cat-file -e "${prev}^{commit}" 2>/dev/null; then
+              git -C upstream/NNS diff --name-only "$prev" HEAD -- src > changed.txt
+            else
+              echo "Manifest commit '${prev}' not in R history; treating all src files as changed."
+              git -C upstream/NNS ls-files src > changed.txt
+            fi
+            python -c 'import json; print(json.dumps([l.strip() for l in open("changed.txt") if l.strip()]))' > changed_files.json
+            rm -f changed.txt
+          fi
+          cat changed_files.json
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -71,6 +129,8 @@ jobs:
       - name: Compare with manifest
         id: compare
         shell: bash
+        env:
+          INCOMING_HASH: ${{ steps.hash.outputs.incoming_hash }}
         run: |
           set -euo pipefail
           current="$(python - <<'PY'
@@ -80,7 +140,7 @@ jobs:
           print(data.get("r_src_tree_hash", ""))
           PY
           )"
-          incoming="${{ steps.hash.outputs.incoming_hash }}"
+          incoming="$INCOMING_HASH"
           echo "current_hash=${current}" >> "$GITHUB_OUTPUT"
           if [ "$current" = "$incoming" ]; then
             echo "changed=false" >> "$GITHUB_OUTPUT"
@@ -94,20 +154,25 @@ jobs:
 
       - name: Inspect changed R src
         if: steps.compare.outputs.changed == 'true'
+        env:
+          R_COMMIT: ${{ steps.payload.outputs.r_commit }}
+          R_VERSION: ${{ steps.payload.outputs.r_version }}
         run: |
           python scripts/inspect_r_src_update.py \
             --r-checkout upstream/NNS \
-            --r-commit "${{ steps.payload.outputs.r_commit }}" \
-            --r-version "${{ steps.payload.outputs.r_version }}" \
+            --r-commit "$R_COMMIT" \
+            --r-version "$R_VERSION" \
             --changed-files-json changed_files.json
 
       - name: Run conservative sync adapter
         id: adapter
         if: steps.compare.outputs.changed == 'true'
+        env:
+          R_COMMIT: ${{ steps.payload.outputs.r_commit }}
         run: |
           python scripts/sync_adapter.py \
             --r-checkout upstream/NNS \
-            --r-commit "${{ steps.payload.outputs.r_commit }}" \
+            --r-commit "$R_COMMIT" \
             --changed-files-json changed_files.json
 
       # ---- live Rcpp fidelity (best effort; gates PR readiness) -------------
@@ -139,11 +204,12 @@ jobs:
         if: steps.compare.outputs.changed == 'true' && steps.rinstall.outcome == 'success'
         id: truth
         continue-on-error: true
+        env:
+          R_COMMIT: ${{ steps.payload.outputs.r_commit }}
+          R_VERSION: ${{ steps.payload.outputs.r_version }}
         run: |
           Rscript tests/fidelity/generate_truth.R \
-            tests/fidelity/truth.json \
-            "${{ steps.payload.outputs.r_commit }}" \
-            "${{ steps.payload.outputs.r_version }}"
+            tests/fidelity/truth.json "$R_COMMIT" "$R_VERSION"
 
       - name: Build NNS-core with fidelity helper
         if: steps.compare.outputs.changed == 'true'
@@ -172,14 +238,20 @@ jobs:
         id: decide
         if: steps.compare.outputs.changed == 'true'
         shell: bash
+        env:
+          NEEDS_MANUAL: ${{ steps.adapter.outputs.needs_manual }}
+          READY_CANDIDATE: ${{ steps.adapter.outputs.ready_candidate }}
+          FIDELITY_OK: ${{ steps.fidelity.outcome == 'success' }}
         run: |
           set -euo pipefail
-          needs_manual="${{ steps.adapter.outputs.needs_manual }}"
-          ready_candidate="${{ steps.adapter.outputs.ready_candidate }}"
-          fidelity_ok="${{ steps.fidelity.outcome == 'success' }}"
+          needs_manual="$NEEDS_MANUAL"
+          ready_candidate="$READY_CANDIDATE"
+          fidelity_ok="$FIDELITY_OK"
 
-          # Ready (non-draft) ONLY when the adapter cleanly auto-updated every
-          # changed file AND the live Rcpp fidelity suite passed.
+          # Ready (non-draft) ONLY when every changed file was a comment- or
+          # whitespace-only R change that the adapter handled by a provenance
+          # bump (any code change routes to manual review) AND the live Rcpp
+          # fidelity suite passed.
           if [ "$ready_candidate" = "true" ] && [ "$fidelity_ok" = "true" ]; then
             echo "draft=false" >> "$GITHUB_OUTPUT"
           else
@@ -238,8 +310,10 @@ jobs:
             - Needs manual review: `${{ steps.decide.outputs.needs_manual }}`
             - Live Rcpp fidelity passed: `${{ steps.decide.outputs.fidelity_ok }}`
 
-            The conservative adapter only rewrites managed provenance comments for
-            fidelity-covered files; it never edits C++ logic. See:
+            The conservative adapter only rewrites managed provenance comments, and
+            only when the R change to a fidelity-covered file is comment- or
+            whitespace-only; it never edits C++ logic and routes every code change
+            to manual review. See:
 
             - `sync/last_r_src_inspection.md`
             - `sync/last_sync_report.md`

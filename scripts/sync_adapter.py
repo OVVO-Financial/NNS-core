@@ -12,7 +12,12 @@ For each changed R `src` file it consults `sync/r_src_map.json` and:
     file to manual review, because a changed public signature means a real port
     is required, not a provenance bump.
   * for `auto: true` mappings (only those covered by the live Rcpp fidelity
-    suite), updates the provenance block in each mapped core file.
+    suite), compares the incoming R file with its snapshot in `original_src/`
+    after stripping comments and whitespace. Only when the code is unchanged
+    (a comment / formatting-only edit) does it update the provenance block in
+    each mapped core file and refresh the snapshot. Any code change is routed
+    to manual review: rewriting a provenance comment must never be presented
+    as a port of changed logic, however the fidelity suite turns out.
   * for `auto: false` mappings, records that a human must port and extend the
     fidelity suite -- it does not invent a port.
 
@@ -65,6 +70,37 @@ def load_changed_files(raw: str | None, source_root: str) -> list[str]:
     if not isinstance(data, list):
         raise SystemExit("--changed-files-json must contain a JSON array")
     return [str(item).strip() for item in data if str(item).strip()]
+
+
+def code_signature(text: str) -> str:
+    """C/C++ source with comments removed and all whitespace collapsed.
+
+    String and character literals are kept verbatim, so a change inside a
+    literal still counts as a code change.
+    """
+    out: list[str] = []
+    i, n = 0, len(text)
+    while i < n:
+        c = text[i]
+        nxt = text[i + 1] if i + 1 < n else ""
+        if c == "/" and nxt == "/":
+            j = text.find("\n", i)
+            i = n if j < 0 else j
+            out.append(" ")
+        elif c == "/" and nxt == "*":
+            j = text.find("*/", i + 2)
+            i = n if j < 0 else j + 2
+            out.append(" ")
+        elif c in "\"'":
+            j = i + 1
+            while j < n and text[j] != c:
+                j += 2 if text[j] == "\\" else 1
+            out.append(text[i : j + 1])
+            i = j + 1
+        else:
+            out.append(c)
+            i += 1
+    return " ".join("".join(out).split())
 
 
 def update_provenance(core_path: Path, prov: dict, r_src: str, commit: str) -> str:
@@ -175,7 +211,27 @@ def process(args) -> Outcome:
             )
             continue
 
-        # auto + signatures intact -> rewrite provenance only.
+        # auto + signatures intact: only a comment/whitespace-only change may
+        # be handled by rewriting provenance. Compare against the snapshot of
+        # the previously ported R file.
+        snapshot = Path(args.snapshot_dir) / Path(rel).name
+        if not snapshot.is_file():
+            out.manual.append(
+                {"r_src": rel, "reason": f"no snapshot {snapshot} to compare against; "
+                 "requires a human review"}
+            )
+            continue
+        old_text = snapshot.read_text(encoding="utf-8", errors="replace")
+        if code_signature(old_text) != code_signature(r_text):
+            out.manual.append(
+                {
+                    "r_src": rel,
+                    "reason": "code changed (not only comments/whitespace) relative to "
+                    f"{snapshot}; requires a human port and fidelity cases",
+                }
+            )
+            continue
+
         actions = []
         for core_rel in mapping["core_paths"]:
             core_path = Path(core_rel)
@@ -186,6 +242,11 @@ def process(args) -> Outcome:
             actions.append({"core": core_rel, "action": action})
             if action != "unchanged":
                 core_files_touched.add(core_rel)
+        # Keep the snapshot byte-identical to the R file at `commit`.
+        if snapshot.read_bytes() != r_file.read_bytes():
+            snapshot.write_bytes(r_file.read_bytes())
+            core_files_touched.add(snapshot.as_posix())
+            actions.append({"core": snapshot.as_posix(), "action": "snapshot-refreshed"})
         out.updated.append({"r_src": rel, "commit": commit, "actions": actions})
 
     out.changed_core_files = sorted(core_files_touched)
@@ -201,7 +262,7 @@ def write_report(out: Outcome, args, path: Path) -> None:
     L.append(f"- mode: {'init/reseed' if args.init else 'dispatch'}")
     L.append("")
 
-    L.append("## Auto-updated provenance (fidelity-covered)")
+    L.append("## Auto-updated provenance (comment/whitespace-only R changes)")
     if out.updated:
         for u in out.updated:
             L.append(f"- `{u['r_src']}` -> `{u['commit']}`")
@@ -274,6 +335,8 @@ def main() -> None:
     parser.add_argument("--r-repo", default="OVVO-Financial/NNS")
     parser.add_argument("--changed-files-json", default=None)
     parser.add_argument("--map", default=str(DEFAULT_MAP))
+    parser.add_argument("--snapshot-dir", default="original_src",
+                        help="snapshot of the previously ported R src files")
     parser.add_argument("--report", default=str(DEFAULT_REPORT))
     parser.add_argument("--result-json", default=str(DEFAULT_RESULT))
     parser.add_argument(
