@@ -71,7 +71,7 @@ void check_against_direct(const std::string& name, const std::vector<double>& x,
   nns::upm_v(degree, t.data(), m, x.data(), x.size(), up.data());
   nns::lpm_ratio_v(degree, t.data(), m, x.data(), x.size(), lr.data());
   nns::upm_ratio_v(degree, t.data(), m, x.data(), x.size(), ur.data());
-  int negatives = 0, bad_ratio = 0;
+  int negatives = 0;
   const std::string tag = name + " deg " + std::to_string(degree);
   for (std::size_t i = 0; i < m; ++i) {
     const double dl = nns::lpm(degree, t[i], x.data(), x.size());
@@ -80,11 +80,12 @@ void check_against_direct(const std::string& name, const std::vector<double>& x,
     check_close(tag + " lpm[" + std::to_string(i) + "]", lo[i], dl, 1e-11);
     check_close(tag + " upm[" + std::to_string(i) + "]", up[i], du, 1e-11);
     if (lo[i] < 0.0 || up[i] < 0.0) ++negatives;
-    if (!(lr[i] >= 0.0 && lr[i] <= 1.0) && !std::isnan(lr[i])) ++bad_ratio;
-    if (!(ur[i] >= 0.0 && ur[i] <= 1.0) && !std::isnan(ur[i])) ++bad_ratio;
+    const double want_lr = degree > 0 ? dl / (dl + du) : dl;
+    const double want_ur = degree > 0 ? du / (dl + du) : du;
+    check_close(tag + " lpm_ratio[" + std::to_string(i) + "]", lr[i], want_lr, 1e-11);
+    check_close(tag + " upm_ratio[" + std::to_string(i) + "]", ur[i], want_ur, 1e-11);
   }
   check(negatives == 0, tag + " no negative partial moments");
-  check(bad_ratio == 0, tag + " ratios within [0, 1]");
 }
 
 // The answer for one target must be the same whether it is requested alone,
