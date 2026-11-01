@@ -321,7 +321,9 @@ void pm_vectorized(double degree, const double* target, std::size_t n_targets,
   if (few_targets) {
     body(0, n_targets);  // serial direct path, as upstream
   } else {
-    parallel_for(0, n_targets, body, n_threads);
+    // Prefix lookups are O(log n + degree); the direct scan (fractional or
+    // > 32 degree) is O(n) per target.
+    parallel_for(0, n_targets, body, n_threads, prefix ? 64U : n);
   }
 }
 
@@ -514,7 +516,8 @@ namespace {
 template <typename ScalarFn>
 void two_var_vectorized(ScalarFn&& scalar, const double* target_x,
                         std::size_t n_tx, const double* target_y,
-                        std::size_t n_ty, double* out, int n_threads) {
+                        std::size_t n_ty, double* out, int n_threads,
+                        std::size_t work_per_target) {
   const std::size_t n_out = (n_tx > n_ty ? n_tx : n_ty);
   parallel_for(
       0, n_out,
@@ -522,7 +525,7 @@ void two_var_vectorized(ScalarFn&& scalar, const double* target_x,
         for (std::size_t i = begin; i < end; ++i)
           out[i] = scalar(target_x[i % n_tx], target_y[i % n_ty]);
       },
-      n_threads);
+      n_threads, work_per_target);
 }
 
 }  // namespace
@@ -538,7 +541,7 @@ void co_lpm_v(double degree_x, double degree_y, const double* x,
       [&](double tx, double ty) {
         return co_lpm(degree_x, degree_y, x, y, n_x, n_y, tx, ty);
       },
-      target_x, n_tx, target_y, n_ty, out, n_threads);
+      target_x, n_tx, target_y, n_ty, out, n_threads, std::min(n_x, n_y));
 }
 
 void co_upm_v(double degree_x, double degree_y, const double* x,
@@ -552,7 +555,7 @@ void co_upm_v(double degree_x, double degree_y, const double* x,
       [&](double tx, double ty) {
         return co_upm(degree_x, degree_y, x, y, n_x, n_y, tx, ty);
       },
-      target_x, n_tx, target_y, n_ty, out, n_threads);
+      target_x, n_tx, target_y, n_ty, out, n_threads, std::min(n_x, n_y));
 }
 
 void d_lpm_v(double degree_lpm, double degree_upm, const double* x,
@@ -566,7 +569,7 @@ void d_lpm_v(double degree_lpm, double degree_upm, const double* x,
       [&](double tx, double ty) {
         return d_lpm(degree_lpm, degree_upm, x, y, n_x, n_y, tx, ty);
       },
-      target_x, n_tx, target_y, n_ty, out, n_threads);
+      target_x, n_tx, target_y, n_ty, out, n_threads, std::min(n_x, n_y));
 }
 
 void d_upm_v(double degree_lpm, double degree_upm, const double* x,
@@ -580,7 +583,7 @@ void d_upm_v(double degree_lpm, double degree_upm, const double* x,
       [&](double tx, double ty) {
         return d_upm(degree_lpm, degree_upm, x, y, n_x, n_y, tx, ty);
       },
-      target_x, n_tx, target_y, n_ty, out, n_threads);
+      target_x, n_tx, target_y, n_ty, out, n_threads, std::min(n_x, n_y));
 }
 
 // --- n-dimensional co-partial moments (ports of *_nD_cpp) ------------------
@@ -602,14 +605,14 @@ void check_nd_args(std::size_t n, std::size_t d) {
 // Mirrors R's parallelFor-into-vector + sum() pattern (same summation order
 // as the upstream NumericVector accumulation).
 template <typename RowFn>
-double reduce_rows(std::size_t n, int n_threads, RowFn&& row_value) {
+double reduce_rows(std::size_t n, std::size_t d, int n_threads, RowFn&& row_value) {
   std::vector<double> out(n);
   parallel_for(
       0, n,
       [&](std::size_t begin, std::size_t end) {
         for (std::size_t i = begin; i < end; ++i) out[i] = row_value(i);
       },
-      n_threads);
+      n_threads, d);
   double total = 0.0;
   for (std::size_t i = 0; i < n; ++i) total += out[i];
   return total;
@@ -619,14 +622,14 @@ double clpm_nd_impl(const double* data, std::size_t n, std::size_t d,
                     const double* target, double degree, int n_threads) {
   const bool deg_is_int = is_integer(degree);
   if (degree == 0.0) {
-    const double count = reduce_rows(n, n_threads, [&](std::size_t i) {
+    const double count = reduce_rows(n, d, n_threads, [&](std::size_t i) {
       for (std::size_t j = 0; j < d; ++j)
         if (at(data, n, i, j) > target[j]) return 0.0;
       return 1.0;
     });
     return count / static_cast<double>(n);
   }
-  const double s = reduce_rows(n, n_threads, [&](std::size_t i) {
+  const double s = reduce_rows(n, d, n_threads, [&](std::size_t i) {
     double prod = 1.0;
     for (std::size_t j = 0; j < d; ++j) {
       const double diff = target[j] - at(data, n, i, j);
@@ -643,14 +646,14 @@ double cupm_nd_impl(const double* data, std::size_t n, std::size_t d,
                     const double* target, double degree, int n_threads) {
   const bool deg_is_int = is_integer(degree);
   if (degree == 0.0) {
-    const double count = reduce_rows(n, n_threads, [&](std::size_t i) {
+    const double count = reduce_rows(n, d, n_threads, [&](std::size_t i) {
       for (std::size_t j = 0; j < d; ++j)
         if (at(data, n, i, j) < target[j]) return 0.0;
       return 1.0;
     });
     return count / static_cast<double>(n);
   }
-  const double s = reduce_rows(n, n_threads, [&](std::size_t i) {
+  const double s = reduce_rows(n, d, n_threads, [&](std::size_t i) {
     double prod = 1.0;
     for (std::size_t j = 0; j < d; ++j) {
       const double diff = at(data, n, i, j) - target[j];
@@ -667,7 +670,7 @@ double dpm_nd_impl(const double* data, std::size_t n, std::size_t d,
                    const double* target, double degree, int n_threads) {
   const bool deg_is_int = is_integer(degree);
   if (degree == 0.0) {
-    const double count = reduce_rows(n, n_threads, [&](std::size_t i) {
+    const double count = reduce_rows(n, d, n_threads, [&](std::size_t i) {
       bool all_below = true, all_above = true;
       for (std::size_t j = 0; j < d; ++j) {
         const double diff = at(data, n, i, j) - target[j];
@@ -679,7 +682,7 @@ double dpm_nd_impl(const double* data, std::size_t n, std::size_t d,
     });
     return count / static_cast<double>(n);
   }
-  const double s = reduce_rows(n, n_threads, [&](std::size_t i) {
+  const double s = reduce_rows(n, d, n_threads, [&](std::size_t i) {
     bool all_below = true, all_above = true;
     for (std::size_t j = 0; j < d; ++j) {
       const double diff = at(data, n, i, j) - target[j];
@@ -799,7 +802,7 @@ void clpm_nd_batch(const double* data, std::size_t n, std::size_t d,
           }
         }
       },
-      n_threads);
+      n_threads, n * d);
 }
 
 // --- PM matrix (port of the 13.0 tensorized PMMatrix_CPv) -------------------
@@ -841,7 +844,7 @@ PMMatrixResult pm_matrix(double degree_lpm, double degree_upm,
           }
         }
       },
-      n_threads);
+      n_threads, n);
 
   double adjust = 1.0;
   if (pop_adj && n > 1)
@@ -897,7 +900,7 @@ PMMatrixResult pm_matrix(double degree_lpm, double degree_upm,
           }
         }
       },
-      n_threads);
+      n_threads, (d + 1) * n / 2 + 1);  // row i contracts d - i column pairs
 
   // Step 3: cellular normalization, preserving the crossed mirror.
   if (norm) {
