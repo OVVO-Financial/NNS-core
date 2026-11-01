@@ -21,7 +21,8 @@ foreach(test_name IN LISTS NNSCORE_CPP_TESTS)
     add_test(NAME ${test_name} COMMAND ${test_name})
 endforeach()
 
-# The fidelity comparator gates CI and sync PRs, so it is tested here too.
+# The fidelity comparator and the sync adapter gate CI and sync PRs, so they
+# are tested here too.
 find_package(Python3 COMPONENTS Interpreter)
 if(Python3_Interpreter_FOUND)
     add_test(NAME test_scripts

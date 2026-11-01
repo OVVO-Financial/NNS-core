@@ -79,6 +79,12 @@ def code_signature(text: str) -> str:
     literal still counts as a code change.
     """
     out: list[str] = []
+    code: list[str] = []
+
+    def flush_code() -> None:
+        out.append(re.sub(r"\s+", " ", "".join(code)))
+        code.clear()
+
     i, n = 0, len(text)
     while i < n:
         c = text[i]
@@ -86,21 +92,23 @@ def code_signature(text: str) -> str:
         if c == "/" and nxt == "/":
             j = text.find("\n", i)
             i = n if j < 0 else j
-            out.append(" ")
+            code.append(" ")
         elif c == "/" and nxt == "*":
             j = text.find("*/", i + 2)
             i = n if j < 0 else j + 2
-            out.append(" ")
+            code.append(" ")
         elif c in "\"'":
             j = i + 1
             while j < n and text[j] != c:
                 j += 2 if text[j] == "\\" else 1
+            flush_code()
             out.append(text[i : j + 1])
             i = j + 1
         else:
-            out.append(c)
+            code.append(c)
             i += 1
-    return " ".join("".join(out).split())
+    flush_code()
+    return "".join(out).strip()
 
 
 def update_provenance(core_path: Path, prov: dict, r_src: str, commit: str) -> str:
