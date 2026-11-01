@@ -511,6 +511,24 @@ add_seas("zero_mean", sz - mean(sz))
 add_seas("constant", rep(5, 20))
 add_seas("short", c(1, 2, 3, 4), r_fix = NULL)
 
+# ---- ARMA seasonal weights (ARMA.seas.weighting) -----------------------------
+# NNS.ARMA falls back to equal weights in its R wrapper when
+# (VarCV - CV) / sqrt(lag) sums to 0; R 13.3 has no wrapper and returns zeros.
+add_arma_w <- function(name, M, r_fix = NULL) {
+  ns <- asNamespace("NNS")
+  fn <- if (exists(".arma_lag_weights", envir = ns, inherits = FALSE)) ns$.arma_lag_weights
+        else ns$ARMA.seas.weighting
+  w <- fn(FALSE, M)
+  add_case(sprintf("arma_seas_weighting_%s", name), "arma_seas_weighting", c(w$lag, w$Weights),
+           vectors = list(periods = M$Period, covar = M$Coefficient.of.Variation,
+                          varcovar = M$Variable.Coefficient.of.Variation), r_fix = r_fix)
+}
+add_arma_w("airpassengers", NNS:::NNS_seas_cpp(ap_x, NULL, TRUE)$all.periods)
+add_arma_w("sentinel", data.frame(Period = c(7, 14, 21), Coefficient.of.Variation = 0.3,
+                                  Variable.Coefficient.of.Variation = 0.3), r_fix = "TS-11")
+add_arma_w("constant", data.frame(Period = c(12, 24), Coefficient.of.Variation = 0,
+                                  Variable.Coefficient.of.Variation = 0), r_fix = "TS-11")
+
 body <- paste(unlist(cases), collapse = ",\n")
 json <- paste0(
   "{\n",

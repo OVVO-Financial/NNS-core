@@ -24,7 +24,7 @@
 // d_upm co_lpm_v co_upm_v d_lpm_v d_upm_v clpm_nd cupm_nd dpm_nd
 // clpm_nd_batch pm_matrix gravity mode partition dep_matrix dep_pair distance_path
 // distance_bulk fast_lm duplicate_column_map mreg_setup mreg_predict
-// mreg_predict_path xstar_path sd_uni seasonality.
+// mreg_predict_path xstar_path sd_uni seasonality arma_seas_weighting.
 //
 // SPDX-License-Identifier: GPL-3.0-only
 #include "nns/nns.hpp"
@@ -300,6 +300,15 @@ std::vector<double> evaluate(const std::string& func, const Flags& f) {
     for (int p : r.all_periods) out.push_back(p);
     append(out, r.all_coef_var);
     append(out, r.all_var_coef_var);
+  } else if (func == "arma_seas_weighting") {
+    // Output: lags, then weights.
+    const std::vector<double> p = list(f, "periods"), cv = list(f, "covar"),
+                              vcv = list(f, "varcovar");
+    if (cv.size() != p.size() || vcv.size() != p.size())
+      die("arma_seas_weighting: periods, covar and varcovar must have the same length");
+    const nns::ARMAWeights r = nns::arma_seas_weighting(p.data(), cv.data(), vcv.data(), p.size());
+    append(out, r.lags);
+    append(out, r.weights);
   } else {
     die("unknown function: " + func);
   }
