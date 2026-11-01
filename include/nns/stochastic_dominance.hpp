@@ -34,6 +34,13 @@ int ssd_uni(const double* x, std::size_t n_x, const double* y, std::size_t n_y);
 /// Third-degree Stochastic Dominance (Univariate)
 int tsd_uni(const double* x, std::size_t n_x, const double* y, std::size_t n_y);
 
+/// Equal-length forms, x and y both of length n.
+inline int fsd_uni(const double* x, const double* y, std::size_t n, bool discrete) {
+  return fsd_uni(x, n, y, n, discrete);
+}
+inline int ssd_uni(const double* x, const double* y, std::size_t n) { return ssd_uni(x, n, y, n); }
+inline int tsd_uni(const double* x, const double* y, std::size_t n) { return tsd_uni(x, n, y, n); }
+
 // --- Pairwise Dominance Matrix ---
 
 /// Faithful port of sd_dom_matrix_prefix_parallel.
