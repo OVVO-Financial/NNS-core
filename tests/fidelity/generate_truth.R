@@ -292,6 +292,34 @@ if (exists("NNS_dep_matrix_cpp", envir = asNamespace("NNS"), inherits = FALSE)) 
   add_case("dep_matrix_indep", "dep_matrix", c(dm$Correlation, dm$Dependence), matrices = list(X = Xi))
 }
 
+# ---- dependence (NNS_dep_pair_cpp, which NNS.dep calls) ---------------------
+# Quadrant labels go to R as strings and to the core as integer cell ids.
+dep_quads <- function(x, y) {
+  l <- length(x)
+  q <- NNS:::NNS_part_cpp(x, y, "XONLY", as.integer(max(ceiling(log(l, 2)), 1L)),
+                          as.integer(max(8L, as.integer(l / 8L))), FALSE, "off", TRUE)$quadrant
+  match(q, unique(q))
+}
+add_dep_pair <- function(name, x, y, qa, qb, r_fix = NULL) {
+  for (asym in c(FALSE, TRUE)) {
+    d <- NNS:::NNS_dep_pair_cpp(as.numeric(x), as.numeric(y), as.character(qa), as.character(qb), asym)
+    add_case(sprintf("dep_pair_%s_a%d", name, asym), "dep_pair", c(d$Correlation, d$Dependence),
+             scalars = list(asym = asym),
+             vectors = list(x = x, y = y, quad_xy = qa, quad_yx = qb), r_fix = r_fix)
+  }
+}
+add_dep_pair("ret", ret[1:300], ret[301:600], dep_quads(ret[1:300], ret[301:600]),
+             dep_quads(ret[301:600], ret[1:300]))
+# Every point discordant: R 13.3 reported Correlation +1 (DEP-01).
+add_dep_pair("negative", ret[1:300], -ret[1:300], dep_quads(ret[1:300], -ret[1:300]),
+             dep_quads(-ret[1:300], ret[1:300]), r_fix = "DEP-01")
+# 49 * (1/49) != 1, so R 13.3 gave dep(b, b) = 0.51 (DEP-08).
+bdep <- c(rep(0, 51), rep(1, 49))
+add_dep_pair("binary_self", bdep, bdep, bdep + 1, bdep + 1, r_fix = "DEP-08")
+# Points on the cell mean were counted as co-lower and discordant (CORE-09).
+xtie <- rep(c(-1, 0, 1), 33); ytie <- rep(c(0, 1, -1, 0, -1, 1, 1, 0, -1), 11)
+add_dep_pair("ties", xtie, ytie, rep(1, 99), rep(1, 99), r_fix = "CORE-09")
+
 # ---- distance (NNS_distance_path_cpp / bulk) --------------------------------
 RPM <- matrix(round(runif(120 * 3), 6), ncol = 3); yh <- round(rnorm(120), 6)
 Xt <- matrix(round(runif(15 * 3), 6), ncol = 3)
