@@ -164,13 +164,14 @@ void rank_components(int k, std::vector<double>& uniform, std::vector<double>& e
   normalize_weights(power);
 }
 
+// Rank weights for k in [kmin, kmax]; every k up to kmax is O(kmax^2) memory.
 struct RankComponents {
   std::vector<std::vector<double>> uniform, exponential, lognormal, power;
   std::vector<double> dt_const;
-  explicit RankComponents(int kmax)
+  RankComponents(int kmin, int kmax)
       : uniform(kmax + 1), exponential(kmax + 1), lognormal(kmax + 1), power(kmax + 1),
         dt_const(kmax + 1, 0.0) {
-    for (int k = 2; k <= kmax; ++k) {
+    for (int k = std::max(kmin, 2); k <= kmax; ++k) {
       rank_components(k, uniform[k], exponential[k], lognormal[k], power[k]);
       dt_const[k] = dt_log_const(static_cast<double>(k));
     }
@@ -549,7 +550,7 @@ std::vector<double> mreg_predict(const double* rpm_x, std::size_t n, std::size_t
                                  bool is_class, int n_threads) {
   validate(n, p, m, k, dist_code, mins, maxs, "k");
   if (static_cast<std::size_t>(k) > n) k = static_cast<int>(n);
-  RankComponents rank(k);
+  RankComponents rank(k, k);
   std::vector<double> out(m);
   PredictKernel kernel(rpm_x, n, p, yhat, Xtest, m, k, dist_code, mins, maxs, is_class, rank,
                        out.data(), /*only_k=*/k);
@@ -563,7 +564,7 @@ std::vector<double> mreg_predict_path(const double* rpm_x, std::size_t n, std::s
                                       const double* maxs, bool is_class, int n_threads) {
   validate(n, p, m, kmax, dist_code, mins, maxs, "kmax");
   if (static_cast<std::size_t>(kmax) > n) kmax = static_cast<int>(n);
-  RankComponents rank(kmax);
+  RankComponents rank(2, kmax);
   std::vector<double> out(m * static_cast<std::size_t>(kmax));
   PredictKernel kernel(rpm_x, n, p, yhat, Xtest, m, kmax, dist_code, mins, maxs, is_class,
                        rank, out.data(), /*only_k=*/0);
