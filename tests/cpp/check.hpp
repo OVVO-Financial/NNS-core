@@ -35,11 +35,13 @@ inline void check(bool ok, const std::string& label) {
   if (!ok) fail(label, "condition is false");
 }
 
-// |got - want| <= abs_tol + rel_tol * |want|; NaN only matches NaN.
+// |got - want| <= abs_tol + rel_tol * |want|; NaN only matches NaN and an
+// infinity only matches the same infinity.
 inline void check_close(const std::string& label, double got, double want,
                         double rel_tol, double abs_tol = 0.0) {
   ++checks();
-  if (std::isnan(got) || std::isnan(want)) {
+  if (got == want) return;
+  if (!std::isfinite(got) || !std::isfinite(want)) {
     if (!(std::isnan(got) && std::isnan(want))) {
       char buf[128];
       std::snprintf(buf, sizeof buf, "got %.17g, want %.17g", got, want);
@@ -47,7 +49,6 @@ inline void check_close(const std::string& label, double got, double want,
     }
     return;
   }
-  if (got == want) return;
   const double diff = std::fabs(got - want);
   if (!(diff <= abs_tol + rel_tol * std::fabs(want))) {
     char buf[160];
