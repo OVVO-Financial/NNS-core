@@ -59,6 +59,8 @@ def within_tol(got: float, want: float, tol: float) -> bool:
         return math.isnan(got) and math.isnan(want)
     if got == want:  # also covers matching infinities
         return True
+    if math.isinf(got) or math.isinf(want):
+        return False
     diff = abs(got - want)
     return diff <= tol or diff <= tol * max(abs(got), abs(want))
 
