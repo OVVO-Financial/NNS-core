@@ -28,9 +28,12 @@ int main() {
   const double tol = sizeof(long double) > sizeof(double) ? 0.0 : 1e-13;
   check_close("intercept", r.coef[0], -4356025.5750295557, tol);
   check_close("slope", r.coef[1], 0.0043560260754383715, tol);
-  check_close("fitted[1]", r.fitted_values[0], 0.50041317194700241, tol);
-  check_close("fitted[250]", r.fitted_values[249], 0.50149782188236713, tol);
-  check_close("fitted[500]", r.fitted_values[499], 0.50258682854473591, tol);
+  // intercept + slope * x cancels two ~4e6 terms, so a fused multiply-add
+  // moves the fitted values by up to one ulp of the intercept.
+  const double fit_tol = 4356025.5750295557 * 2.220446049250313e-16;
+  check_close("fitted[1]", r.fitted_values[0], 0.50041317194700241, 0.0, fit_tol);
+  check_close("fitted[250]", r.fitted_values[249], 0.50149782188236713, 0.0, fit_tol);
+  check_close("fitted[500]", r.fitted_values[499], 0.50258682854473591, 0.0, fit_tol);
   check(r.df_residual == 498, "df.residual");
 
   // Constant x: slope 0, intercept mean(y).
