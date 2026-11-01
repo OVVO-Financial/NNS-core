@@ -29,7 +29,12 @@ double reduce_numeric(std::vector<double>& v, int reducer, bool is_class) {
           v.end());
   if (v.empty()) return kNaN;
   std::sort(v.begin(), v.end());
-  if (is_class || reducer == kMregMode) {
+  // Same estimator as the pure-R reducer (.nns_reg_reduce_value), CORE-03.
+  if (!is_class && reducer == kMregMode) {
+    const std::vector<double> m = nns::mode(v.data(), v.size(), false, false);
+    return m.empty() ? kNaN : m.front();
+  }
+  if (is_class) {
     double best = v[0];
     int bestn = 0;
     for (std::size_t i = 0; i < v.size();) {
