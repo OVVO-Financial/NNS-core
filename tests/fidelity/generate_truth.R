@@ -347,6 +347,18 @@ for (dc in 0:2) {
            vectors = list(yhat = y1d, mins = c(0, 0), maxs = c(1, 2)),
            matrices = list(rpm_x = r1d, Xtest = q1d))
 }
+# A query about 58 from every regression point: the Student-t weights underflow.
+xf <- matrix(0, 1000, 60); yf <- c(numeric(999), 100); qf <- matrix(0, 1, 60)
+for (i in 0:999) {
+  xf[i + 1, (i + 0:28) %% 60 + 1] <- 1
+  xf[i + 1, (i + 29) %% 60 + 1] <- (sqrt(1 + 4 * (59.57 - i / 999 - 58)) - 1) / 2
+}
+add_case("mreg_predict_far_underflow", "mreg_predict",
+         NNS:::NNS_mreg_predict_v2_cpp(xf, yf, qf, 1000L, 0L, rep(0, 60), rep(1, 60), FALSE, 1L),
+         scalars = list(k = 1000, dist_code = 0, is_class = FALSE),
+         vectors = list(yhat = yf, mins = rep(0, 60), maxs = rep(1, 60)),
+         matrices = list(rpm_x = xf, Xtest = qf))
+
 # X* projection path
 trd <- matrix(round(rnorm(60 * 4), 5), ncol = 4); ted <- matrix(round(rnorm(10 * 4), 5), ncol = 4)
 for (cf in list(c(0.5, -1.2, 0, 2), c(0, 0, 0, 0), c(1, 1, 1, 1))) {

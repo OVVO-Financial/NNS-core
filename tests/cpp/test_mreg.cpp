@@ -88,6 +88,25 @@ int main() {
     for (std::size_t r = 0; r < m; ++r) check_close("1-D path vs single k", p1[r + (k - 1) * m], o[r], 0.0);
   }
 
+  // A query about 58 from every regression point, where the Student-t weights
+  // underflow. R 13.3 NNS:::NNS_mreg_predict_v2_cpp(x, y, matrix(0, 1, 60),
+  // 1000L, 0L, rep(0, 60), rep(1, 60), FALSE, 1L) on the same x, y returns
+  // 7.7618903035977533.
+  {
+    const std::size_t fn = 1000, fp = 60;
+    std::vector<double> fx(fn * fp, 0.0), fy(fn, 0.0), fq(fp, 0.0), lo(fp, 0.0), hi(fp, 1.0);
+    for (std::size_t i = 0; i < fn; ++i) {
+      for (std::size_t j = 0; j < 29; ++j) fx[i + ((i + j) % fp) * fn] = 1.0;
+      const double d = 59.57 - static_cast<double>(i) / 999.0;
+      fx[i + ((i + 29) % fp) * fn] = (std::sqrt(1.0 + 4.0 * (d - 58.0)) - 1.0) / 2.0;
+    }
+    fy[fn - 1] = 100.0;
+    const std::vector<double> far = nns::mreg_predict(fx.data(), fn, fp, fy.data(), fq.data(), 1,
+                                                      static_cast<int>(fn), nns::kMregDistNNS,
+                                                      lo.data(), hi.data(), false, 1);
+    check_close("far query, underflowing t weights", far[0], 7.7618903035977533, 1e-12);
+  }
+
   // mreg_setup: rows grouped by findInterval ids, groups sorted as strings.
   const std::vector<double> X = {0.1, 0.2, 0.9, 0.95, 0.5,   // column 1
                                  1.0, 1.0, 3.0, 3.0, 2.0};   // column 2

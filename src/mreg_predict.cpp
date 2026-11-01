@@ -12,10 +12,9 @@
 //
 // The R kernel evaluates its density components with Rmath (Rf_dt, Rf_dexp,
 // Rf_dlnorm, Rf_dnorm4) inside RcppParallel workers. Here dexp, dlnorm and
-// dnorm are the same closed forms Rmath uses, and dt is evaluated up to its
-// normalising constant (which cancels in normalize_prefix). No R API is
-// touched from worker threads (finding CORE-20), and results agree with R to
-// floating-point rounding.
+// dnorm are the same closed forms Rmath uses, and dt follows Rmath's
+// factorisation with lgamma for the constant. No R API is touched from worker
+// threads, and results agree with R to floating-point rounding.
 //
 // SPDX-License-Identifier: GPL-3.0-only
 #include <algorithm>
@@ -42,11 +41,21 @@ constexpr double kLn2 = 0.693147180559945309417232121458;
 
 // ---- densities (closed forms; see file comment) -----------------------------
 
-// Student t density with df degrees of freedom, without the normalising
-// constant: (1 + x^2/df)^(-(df+1)/2).
-inline double t_kernel(double x, double df) {
+// The df-only term t of Rmath's dt(x, df).
+inline double dt_log_const(double df) {
+  return std::lgamma(0.5 * (df + 1.0)) - std::lgamma(0.5 * df) + 0.5 * std::log(2.0 / df);
+}
+
+// Rmath dt(x, df, give_log = 0) for finite df > 0 with t = dt_log_const(df),
+// factored as Rmath does so that far-away weights underflow where R's do.
+inline double dt0(double x, double df, double t) {
   if (!std::isfinite(x)) return 0.0;
-  return std::exp(-0.5 * (df + 1.0) * std::log1p(x * x / df));
+  const double ax = std::fabs(x), x2n = x * x / df;
+  const bool large = x2n > 1.0 / DBL_EPSILON;
+  const double l_x2n = large ? std::log(ax) - 0.5 * std::log(df)
+                             : 0.5 * (x2n > 0.2 ? std::log(1.0 + x2n) : std::log1p(x2n));
+  const double scale = large ? std::sqrt(df) / ax : std::exp(-l_x2n);
+  return std::exp(t - df * l_x2n) * k1SqrtTwoPi * scale;
 }
 
 // Rmath dexp(x, scale, give_log = 0).
@@ -157,10 +166,14 @@ void rank_components(int k, std::vector<double>& uniform, std::vector<double>& e
 
 struct RankComponents {
   std::vector<std::vector<double>> uniform, exponential, lognormal, power;
+  std::vector<double> dt_const;
   explicit RankComponents(int kmax)
-      : uniform(kmax + 1), exponential(kmax + 1), lognormal(kmax + 1), power(kmax + 1) {
-    for (int k = 2; k <= kmax; ++k)
+      : uniform(kmax + 1), exponential(kmax + 1), lognormal(kmax + 1), power(kmax + 1),
+        dt_const(kmax + 1, 0.0) {
+    for (int k = 2; k <= kmax; ++k) {
       rank_components(k, uniform[k], exponential[k], lognormal[k], power[k]);
+      dt_const[k] = dt_log_const(static_cast<double>(k));
+    }
   }
 };
 
@@ -219,7 +232,7 @@ struct Scratch {
 double predict_sorted_k(const std::vector<double>& dk, const std::vector<double>& yk, int k,
                         bool is_class, const RankComponents& rank, Scratch& s) {
   const double kk = static_cast<double>(k);
-  for (int i = 0; i < k; ++i) s.student[i] = t_kernel(dk[i], kk);
+  for (int i = 0; i < k; ++i) s.student[i] = dt0(dk[i], kk, rank.dt_const[k]);
   normalize_prefix(s.student, k);
   for (int i = 0; i < k; ++i) s.inverse[i] = 1.0 / std::max(dk[i], 1e-12);
   normalize_prefix(s.inverse, k);
