@@ -61,7 +61,9 @@ double copula_signed(const std::vector<double>& xv, const std::vector<double>& y
     
     if (dx > 0.0 && dy > 0.0) d0_cupm += 1.0;
     if (dx <= 0.0 && dy <= 0.0) d0_clpm += 1.0;
-    if (!((dx < 0.0 && dy < 0.0) || (dx > 0.0 && dy > 0.0)))
+    // Discordant = neither co-lower (<= target) nor co-upper (> target), so
+    // the degree-0 counts partition the cell.
+    if (!((dx <= 0.0 && dy <= 0.0) || (dx > 0.0 && dy > 0.0)))
       dpm_d0_count += 1.0;
     
     if (dx >= 0.0 && dy >= 0.0) {
@@ -116,7 +118,9 @@ double copula_degree0_unsigned(const std::vector<double>& xv, const std::vector<
     double dy = yv[i] - ty;
     if (dx > 0.0 && dy > 0.0) d0_cupm += 1.0;
     if (dx <= 0.0 && dy <= 0.0) d0_clpm += 1.0;
-    if (!((dx < 0.0 && dy < 0.0) || (dx > 0.0 && dy > 0.0)))
+    // Discordant = neither co-lower (<= target) nor co-upper (> target), so
+    // the degree-0 counts partition the cell.
+    if (!((dx <= 0.0 && dy <= 0.0) || (dx > 0.0 && dy > 0.0)))
       dpm_d0_count += 1.0;
   }
   
