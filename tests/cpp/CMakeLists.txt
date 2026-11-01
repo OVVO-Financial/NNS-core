@@ -14,6 +14,7 @@ set(NNSCORE_CPP_TESTS
     test_mreg
     test_parallel
     test_dependence
+    test_stochastic_dominance
 )
 
 foreach(test_name IN LISTS NNSCORE_CPP_TESTS)

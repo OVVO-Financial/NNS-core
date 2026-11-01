@@ -442,6 +442,50 @@ for (cf in list(c(0.5, -1.2, 0, 2), c(0, 0, 0, 0), c(1, 1, 1, 1))) {
            vectors = list(coef = cf, column_order = ord), matrices = list(train = trd, test = ted))
 }
 
+# ---- stochastic dominance (NNS_FSD/SSD/TSD_uni_cpp) --------------------------
+# x is never longer than y: R 13.3 walked y with x's length, which reads past
+# the end of a shorter y.
+add_sd <- function(name, degree, x, y, type = "discrete", r_fix = NULL) {
+  v <- switch(degree, NNS.FSD.uni(x, y, type), NNS.SSD.uni(x, y), NNS.TSD.uni(x, y))
+  add_case(sprintf("sd_uni_%s", name), "sd_uni", v,
+           scalars = list(degree = degree, discrete = type == "discrete"),
+           vectors = list(x = x, y = y), r_fix = r_fix)
+}
+sa <- round(rnorm(50), 4); sb <- round(sa - abs(rnorm(50)), 4)
+for (deg in 1:3) {
+  add_sd(sprintf("shift_d%d", deg), deg, sa, sb)
+  add_sd(sprintf("shift_rev_d%d", deg), deg, sb, sa)
+}
+add_sd("shift_cont", 1, sa, sb, "continuous")
+su <- round(runif(30, 1, 3), 3); sv <- round(runif(45, 0, 2), 3)
+add_sd("unequal_d1", 1, su, sv, r_fix = "SDA-08")
+add_sd("unequal_short_d1", 1, 4, c(3, 0), r_fix = "SDA-08")
+add_sd("unequal_short_d2", 2, c(1, 4), c(3, 1, 3, 0, 2), r_fix = "SDA-08")
+add_sd("unequal_short_d3", 3, c(4, 1), c(0, 3, 3, 4), r_fix = "SDA-08")
+# Equal curves, and ratios equal at every knot, are not dominance.
+add_sd("coincide_cont", 1, c(1, 2), c(1, 1, 2, 2), "continuous", r_fix = "SDA-07")
+add_sd("coincide_d2", 2, c(1, 2), c(1, 1, 2, 2), r_fix = "SDA-07")
+add_sd("coincide_d3", 3, c(1, 2), c(1, 1, 2, 2), r_fix = "SDA-07")
+add_sd("knots_cross_xy", 1, c(0, 0, 3, 3), c(1, 1, 3, 0), "continuous", r_fix = "SDA-07")
+add_sd("knots_cross_yx", 1, c(1, 1, 3, 0), c(0, 0, 3, 3), "continuous", r_fix = "SDA-07")
+add_sd("midpoint_xy", 1, c(0, 1, 1), c(0, 0, 1), "continuous", r_fix = "SDA-07")
+add_sd("midpoint_yx", 1, c(0, 0, 1), c(0, 1, 1), "continuous", r_fix = "SDA-07")
+add_sd("midpoint_mass_xy", 1, c(1, 1), c(0, 1), "continuous", r_fix = "SDA-07")
+# Continuous ratio 0/0 at a point mass is the CDF value.
+add_sd("ratio_00_mass", 1, rep(4, 6), c(5, 5, 0, 4, 0, 2), "continuous", r_fix = "SDA-13")
+# The curves cross between sample points.
+add_sd("interior_d3", 3, c(-0.85, -1.52, 0.68), c(-0.21, -0.33, -1.67), r_fix = "SDA-05")
+add_sd("interior_cont", 1, c(0.15, 1.55, -0.86, -0.8, 0.25, 0.33),
+       c(-0.15, 1.17, 0.26, -0.04, -2.44, 1.19), "continuous", r_fix = "SDA-05")
+# Rounding-level differences are ties; the large sample needs compensated
+# prefix sums to stay within the tolerance.
+add_sd("tol_sum", 2, c(0.1, 0.7), c(0, 0.8), r_fix = "SDA-09")
+zq <- qnorm(ppoints(100))
+add_sd("tol_spread", 2, zq + 0.37, 2 * zq + 0.37, r_fix = "SDA-09")
+zr <- round(qnorm(ppoints(1e4)), 1)
+add_sd("tol_spread_1e4_d2", 2, 0.1 * zr + 0.3, 0.2 * zr + 0.3, r_fix = "SDA-09")
+add_sd("tol_spread_1e4_d3", 3, 0.1 * zr + 0.3, 0.2 * zr + 0.3, r_fix = "SDA-09")
+
 body <- paste(unlist(cases), collapse = ",\n")
 json <- paste0(
   "{\n",

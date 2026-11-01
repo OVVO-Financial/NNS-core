@@ -24,7 +24,7 @@
 // d_upm co_lpm_v co_upm_v d_lpm_v d_upm_v clpm_nd cupm_nd dpm_nd
 // clpm_nd_batch pm_matrix gravity mode partition dep_matrix dep_pair distance_path
 // distance_bulk fast_lm duplicate_column_map mreg_setup mreg_predict
-// mreg_predict_path xstar_path.
+// mreg_predict_path xstar_path sd_uni.
 //
 // SPDX-License-Identifier: GPL-3.0-only
 #include "nns/nns.hpp"
@@ -276,6 +276,17 @@ std::vector<double> evaluate(const std::string& func, const Flags& f) {
     append(out, r.train);
     append(out, r.test);
     append(out, r.denominator);
+  } else if (func == "sd_uni") {
+    const std::vector<double> x = list(f, "x"), y = list(f, "y");
+    const int degree = static_cast<int>(scalar(f, "degree"));
+    if (degree == 1)
+      out.push_back(nns::fsd_uni(x.data(), x.size(), y.data(), y.size(), flag(f, "discrete", true)));
+    else if (degree == 2)
+      out.push_back(nns::ssd_uni(x.data(), x.size(), y.data(), y.size()));
+    else if (degree == 3)
+      out.push_back(nns::tsd_uni(x.data(), x.size(), y.data(), y.size()));
+    else
+      die("sd_uni: degree must be 1, 2 or 3");
   } else {
     die("unknown function: " + func);
   }

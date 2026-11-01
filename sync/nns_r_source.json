@@ -74,6 +74,31 @@
       "id": "MODE-TIES",
       "r_src": "src/central_tendencies.cpp",
       "summary": "NNS.mode ordered equally high peaks with std::sort, so the kept peaks and the single mode depended on the standard library; now bin order breaks ties and the single mode averages the highest peaks"
+    },
+    {
+      "id": "SDA-08",
+      "r_src": "src/SD.cpp",
+      "summary": "the pairwise SD test walked both samples with the first sample's length, so .uni results for samples of unequal length were wrong"
+    },
+    {
+      "id": "SDA-07",
+      "r_src": "src/SD.cpp",
+      "summary": "the pairwise SD test reported dominance in both directions when the curves coincide (also continuous FSD ratios equal at every knot)"
+    },
+    {
+      "id": "SDA-13",
+      "r_src": "src/SD.cpp",
+      "summary": "continuous FSD mapped the 0/0 ratio at a point mass to 0 instead of the CDF value, as LPM.ratio does"
+    },
+    {
+      "id": "SDA-05",
+      "r_src": "src/SD.cpp",
+      "summary": "TSD and continuous FSD were checked only at the sample points, missing curve crossings between them"
+    },
+    {
+      "id": "SDA-09",
+      "r_src": "src/SD.cpp",
+      "summary": "SD verdicts compared curves exactly, so rounding noise decided them; now a 64 * DBL_EPSILON relative tie tolerance with compensated prefix sums"
     }
   ]
 }
