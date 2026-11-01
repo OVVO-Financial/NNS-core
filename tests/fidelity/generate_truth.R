@@ -509,6 +509,8 @@ add_seas("odd", ap_x[1:143])
 sz <- sin(2 * pi * (1:96) / 12)
 add_seas("zero_mean", sz - mean(sz))
 add_seas("constant", rep(5, 20))
+# An all-zero component has CV 0, not 0/0.
+add_seas("alternating", rep(c(0, 1), 10))
 add_seas("short", c(1, 2, 3, 4), r_fix = NULL)
 
 # ---- ARMA seasonal weights (ARMA.seas.weighting) -----------------------------

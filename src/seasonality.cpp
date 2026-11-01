@@ -73,31 +73,27 @@ SeasonalityResult seasonality(const double* x, std::size_t n,
   const double mean_var = vec_mean(variable);
   const double sd_var = vec_sd(variable);
   // CV is meaningless for a mean that is zero up to rounding; compare sds instead
-  const bool use_cv = std::fabs(mean_var) > std::sqrt(DBL_EPSILON) * sd_var;
+  const double tol = std::sqrt(DBL_EPSILON);
+  const bool use_cv = std::fabs(mean_var) > tol * sd_var;
   const double var_cov = use_cv ? std::fabs(sd_var / mean_var) : sd_var;
 
   // Lag m: length-weighted mean CV of its m component series x[j], x[j + m], ...
   std::vector<int> periods_vec;
   std::vector<double> cvmean_vec;
-  std::vector<double> mu(half_n), ss(half_n);
   for (int m = 1; m <= half_n; ++m) {
-    std::fill(mu.begin(), mu.begin() + m, 0.0);
-    std::fill(ss.begin(), ss.begin() + m, 0.0);
-    for (int i = 0, j = 0; i < ni; ++i) {
-      mu[j] += variable[i];
-      if (++j == m) j = 0;
-    }
-    for (int j = 0; j < m; ++j) mu[j] /= static_cast<double>((ni - 1 - j) / m + 1);
-    for (int i = 0, j = 0; i < ni; ++i) {
-      double d = variable[i] - mu[j];
-      ss[j] += d * d;
-      if (++j == m) j = 0;
-    }
     double wsum = 0.0;
     for (int j = 0; j < m; ++j) {
       int len = (ni - 1 - j) / m + 1;
-      double sd = std::sqrt(ss[j] / static_cast<double>(len - 1));
-      wsum += len * (use_cv ? std::fabs(sd / mu[j]) : sd);
+      double mu = 0.0, ss = 0.0;
+      for (int i = j; i < ni; i += m) mu += x[i];
+      mu /= static_cast<double>(len);
+      for (int i = j; i < ni; i += m) {
+        double d = x[i] - mu;
+        ss += d * d;
+      }
+      double sd = std::sqrt(ss / static_cast<double>(len - 1));
+      // a constant component has CV 0; a near-zero mean caps CV at 1/tol, where the series switches to sd
+      wsum += len * (use_cv ? (sd == 0.0 ? 0.0 : sd / std::max(std::fabs(mu), tol * sd)) : sd);
     }
     double cv_m = wsum / static_cast<double>(ni);
     if (cv_m < var_cov) {
