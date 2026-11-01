@@ -160,9 +160,13 @@ jobs:
         id: fidelity
         continue-on-error: true
         run: |
+          # r_fix cases cover R bugs NNS-core fixes ahead of R (listed in
+          # sync/nns_r_source.json r_bug_fixes); they may differ from an R
+          # build without those fixes. Every other case must match.
           python scripts/run_fidelity.py \
             --truth tests/fidelity/truth.json \
-            --eval-bin build/tests/fidelity/nns_eval
+            --eval-bin build/tests/fidelity/nns_eval \
+            --xfail-r-fixes
 
       - name: Decide PR readiness
         id: decide
