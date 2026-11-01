@@ -110,8 +110,25 @@ jobs:
             -H "Accept: application/vnd.github+json" \
             -H "Authorization: Bearer ${TOKEN}" \
             "https://api.github.com/repos/${PYTHON_REPO}/contents/${RECEIVER_WORKFLOW}")"
-          if [ "$status" = "200" ] && jq -r '.content' receiver.json | base64 -d 2>/dev/null \
-               | grep -q 'nns-core-updated'; then
+          # Decode to a file and parse it: a substring match accepted comments
+          # and other triggers, and grep -q under pipefail could SIGPIPE base64.
+          if [ "$status" = "200" ] \
+             && jq -r '.content' receiver.json | base64 -d > receiver.yml 2>/dev/null \
+             && python3 - receiver.yml <<'PY'
+          import sys
+          import yaml
+          doc = yaml.safe_load(open(sys.argv[1], encoding="utf-8"))
+          # YAML 1.1 loads the `on:` key as True.
+          on = doc.get("on", doc.get(True)) if isinstance(doc, dict) else None
+          if isinstance(on, (str, list)):
+              on = {event: None for event in ([on] if isinstance(on, str) else on)}
+          if not isinstance(on, dict) or "repository_dispatch" not in on:
+              sys.exit(1)
+          types = (on["repository_dispatch"] or {}).get("types")
+          types = [types] if isinstance(types, str) else types
+          sys.exit(0 if types is None or "nns-core-updated" in types else 1)
+          PY
+          then
             echo "present=true" >> "$GITHUB_OUTPUT"
           else
             echo "present=false" >> "$GITHUB_OUTPUT"
@@ -120,7 +137,7 @@ jobs:
             echo "### NNS-python not notified" >> "$GITHUB_STEP_SUMMARY"
             echo "${msg}" >> "$GITHUB_STEP_SUMMARY"
           fi
-          rm -f receiver.json
+          rm -f receiver.json receiver.yml
 
       - name: Dispatch nns-core-updated to NNS-python
         if: steps.detect.outputs.notify == 'true' && steps.receiver.outputs.present == 'true'
