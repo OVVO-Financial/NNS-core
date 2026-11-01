@@ -6,6 +6,9 @@ on:
   pull_request:
     branches: [ "main" ]
 
+permissions:
+  contents: read
+
 jobs:
   build-cpp-core:
     name: C++ Build (${{ matrix.os }})
@@ -27,3 +30,101 @@ jobs:
 
     - name: Test
       run: ctest --test-dir build --build-config Release --output-on-failure
+
+  # The C++ tests again under AddressSanitizer + UndefinedBehaviorSanitizer:
+  # heap over-reads (CORE-12), out-of-bounds generators (CORE-13) and
+  # float -> int overflow (CORE-07, CORE-08) only show up here.
+  sanitizers:
+    name: C++ tests (ASan + UBSan)
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+
+    - name: Configure CMake
+      run: >
+        cmake -B build-san -DCMAKE_BUILD_TYPE=Debug -DNNSCORE_BUILD_TESTS=ON
+        -DCMAKE_CXX_FLAGS="-fsanitize=address,undefined -fno-sanitize-recover=undefined -fno-omit-frame-pointer"
+        -DCMAKE_EXE_LINKER_FLAGS="-fsanitize=address,undefined"
+
+    - name: Build
+      run: cmake --build build-san --parallel
+
+    - name: Test
+      env:
+        ASAN_OPTIONS: detect_leaks=1:abort_on_error=1
+        UBSAN_OPTIONS: print_stacktrace=1:halt_on_error=1
+      run: ctest --test-dir build-san --output-on-failure
+
+  # Live Rcpp fidelity against the R commit recorded in sync/nns_r_source.json.
+  fidelity:
+    name: Live R fidelity
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+
+    - name: Read R provenance
+      id: prov
+      shell: bash
+      run: |
+        set -euo pipefail
+        r_repo="$(jq -r '.r_repo // "OVVO-Financial/NNS"' sync/nns_r_source.json)"
+        r_commit="$(jq -r '.r_commit' sync/nns_r_source.json)"
+        [[ "$r_repo" =~ ^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$ ]] || { echo "::error::bad r_repo"; exit 1; }
+        [[ "$r_commit" =~ ^[0-9a-fA-F]{7,40}$ ]] || { echo "::error::bad r_commit"; exit 1; }
+        echo "r_repo=$r_repo" >> "$GITHUB_OUTPUT"
+        echo "r_commit=$r_commit" >> "$GITHUB_OUTPUT"
+
+    - name: Check out R NNS at the recorded commit
+      uses: actions/checkout@v4
+      with:
+        repository: ${{ steps.prov.outputs.r_repo }}
+        ref: ${{ steps.prov.outputs.r_commit }}
+        path: upstream/NNS
+
+    - name: Set up R
+      uses: r-lib/actions/setup-r@v2
+      with:
+        r-version: release
+        use-public-rspm: true
+
+    - name: Install system libraries for rgl
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y libglu1-mesa-dev libgl1-mesa-dev
+
+    - name: Install R dependencies
+      uses: r-lib/actions/setup-r-dependencies@v2
+      with:
+        working-directory: upstream/NNS
+        dependencies: '"hard"'
+
+    - name: Install R NNS (R CMD INSTALL)
+      run: R CMD INSTALL upstream/NNS
+
+    - name: Build NNS-core with the fidelity helper
+      run: |
+        cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DNNSCORE_BUILD_TESTS=OFF -DNNSCORE_BUILD_FIDELITY=ON
+        cmake --build build --parallel
+
+    - name: Generate live R truth
+      env:
+        R_COMMIT: ${{ steps.prov.outputs.r_commit }}
+      run: Rscript tests/fidelity/generate_truth.R build/truth.json "$R_COMMIT"
+
+    - name: Compare C++ against live R truth
+      run: |
+        # r_fix cases cover R bugs NNS-core fixes ahead of R (r_bug_fixes in
+        # sync/nns_r_source.json); every other case must match.
+        python3 scripts/run_fidelity.py --truth build/truth.json \
+          --eval-bin build/tests/fidelity/nns_eval \
+          --report build/fidelity_report.md --xfail-r-fixes
+
+    - name: Upload fidelity report
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: fidelity-report
+        path: build/fidelity_report.md
+        if-no-files-found: ignore
