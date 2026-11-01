@@ -106,6 +106,7 @@ jobs:
             echo "OVVO_SYNC_TOKEN not set in NNS-core; cannot notify NNS-python." >&2
             exit 1
           fi
+          python3 -c "import yaml" 2>/dev/null || sudo apt-get install -y python3-yaml
           status="$(curl -sS -o receiver.json -w '%{http_code}' \
             -H "Accept: application/vnd.github+json" \
             -H "Authorization: Bearer ${TOKEN}" \
