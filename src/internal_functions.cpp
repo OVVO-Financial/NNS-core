@@ -287,7 +287,8 @@ ARMAWeights arma_seas_weighting(const double* periods, const double* covar, cons
   ARMAWeights res;
   res.lags.assign(periods, periods + m);
   if (denom == 0.0) {
-    res.weights.assign(m, 0.0);
+    // All-zero weights forced a forecast of 0; NNS.ARMA uses equal weights.
+    res.weights.assign(m, 1.0 / static_cast<double>(m));
   } else {
     res.weights.resize(m);
     for (std::size_t i = 0; i < m; ++i) res.weights[i] = wprod[i] / denom;

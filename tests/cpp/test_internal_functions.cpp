@@ -2,11 +2,13 @@
 //
 // generate_vectors / generate_lin_vectors: in-range results equal the
 // NNS 13.3 values, and out-of-range lags no longer read out of bounds,
-// underflow size_t or divide by zero.
+// underflow size_t or divide by zero. arma_seas_weighting falls back to
+// equal weights.
 //
 // SPDX-License-Identifier: GPL-3.0-only
 #include "nns/internal_functions.hpp"
 
+#include <cmath>
 #include <vector>
 
 #include "check.hpp"
@@ -61,6 +63,18 @@ int main() {
   check_throws("lin l < 0", [&] { nns::generate_lin_vectors(x.data(), x.size(), -2, 1); });
   check_throws("lin h < 0", [&] { nns::generate_lin_vectors(x.data(), x.size(), 3, -1); });
   check(nns::generate_lin_vectors(x.data(), x.size(), 3, 0).series.empty(), "lin h = 0");
+
+  // (VarCV - CV) / sqrt(lag), normalised; equal weights when that sums to 0
+  // (13.3 returned zeros, so NNS.ARMA forecast 0).
+  const double per[3] = {7, 14, 21}, cv[3] = {0.1, 0.2, 0.3}, vcv[3] = {0.3, 0.3, 0.3};
+  const nns::ARMAWeights w = nns::arma_seas_weighting(per, cv, vcv, 3);
+  const double w0 = 0.2 / std::sqrt(7.0), w1 = 0.1 / std::sqrt(14.0);
+  nns_test::check_close("weight 7", w.weights[0], w0 / (w0 + w1), 1e-15);
+  nns_test::check_close("weight 14", w.weights[1], w1 / (w0 + w1), 1e-15);
+  check(w.weights[2] == 0.0, "weight 21 (CV == VarCV)");
+  const nns::ARMAWeights eq = nns::arma_seas_weighting(per, vcv, vcv, 3);
+  check(eq.lags == std::vector<double>({7, 14, 21}), "zero-sum lags");
+  check(eq.weights == std::vector<double>(3, 1.0 / 3.0), "zero-sum weights are equal");
 
   return nns_test::check_summary("test_internal_functions");
 }
