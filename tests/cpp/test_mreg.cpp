@@ -107,6 +107,11 @@ int main() {
       const std::vector<double> b = nns::mreg_predict(tx, 3, 2, ty, tq2, 2, 1, dist, lo, hi, false);
       check_close(tag + " tie", a[0], b[0], 0.0);
       if (dist == nns::kMregDistNNS) check_close("R reference helper", a[0], 50.0, 0.0);
+      // Dividing by the range, as R's reference does, puts .03 strictly nearer
+      // (.26, .26) than .49; multiplying by 1/range ties them (50).
+      const double dx[] = {.03, .49, 1, .03, .49, 1}, dq[] = {.26, .26}, dlo[] = {.03, .03};
+      const std::vector<double> dv = nns::mreg_predict(dx, 3, 2, ty, dq, 1, 1, dist, dlo, hi, false);
+      if (dist == nns::kMregDistNNS) check_close("divide by the range", dv[0], 100.0, 0.0);
       for (bool is_cls : {false, true}) {
         const std::vector<double>& yy = is_cls ? cls : yhat;
         const std::vector<double> pa = nns::mreg_predict_path(gx.data(), n, 2, yy.data(), one.data(), m,

@@ -357,6 +357,13 @@ add_case("mreg_predict_1d_tie", "mreg_predict",
          scalars = list(k = 1, dist_code = 0, is_class = FALSE),
          vectors = list(yhat = c(0, 100, 999), mins = c(.01, .01), maxs = c(1, 1)),
          matrices = list(rpm_x = xt1, Xtest = matrix(.07, 1, 2)), r_fix = "MREG-1D")
+# Dividing by the range puts .03 strictly nearer (.26, .26) than .49; 1/range ties them.
+xd <- cbind(c(.03, .49, 1), c(.03, .49, 1)); qd <- rbind(c(.26, .26), c(.2, .3))
+add_case("mreg_predict_range_divide", "mreg_predict",
+         NNS:::NNS_mreg_predict_v2_cpp(xd, c(0, 100, 999), qd, 1L, 0L, c(.03, .03), c(1, 1), FALSE, 1L),
+         scalars = list(k = 1, dist_code = 0, is_class = FALSE),
+         vectors = list(yhat = c(0, 100, 999), mins = c(.03, .03), maxs = c(1, 1)),
+         matrices = list(rpm_x = xd, Xtest = qd), r_fix = "MREG-DIV")
 # A query about 58 from every regression point: the Student-t weights underflow.
 xf <- matrix(0, 1000, 60); yf <- c(numeric(999), 100); qf <- matrix(0, 1, 60)
 for (i in 0:999) {

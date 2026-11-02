@@ -44,6 +44,11 @@
       "id": "MREG-1D",
       "r_src": "src/NNS_mreg_predict.cpp",
       "summary": "the 1-D duplicated-coordinate fast path compared raw |x - t| instead of the range-normalised distances, so neighbours and ties (and the prediction) depended on the other queries in the batch"
+    },
+    {
+      "id": "MREG-DIV",
+      "r_src": "src/NNS_mreg_predict.cpp",
+      "summary": "native M.reg distances multiplied by a precomputed 1/range, which rounds differently from the R reference's division and can flip exact nearest-neighbour ties (50 vs 100)"
     }
   ]
 }

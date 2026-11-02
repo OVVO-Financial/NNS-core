@@ -289,7 +289,7 @@ class PredictKernel {
       const double range = maxs[j] - mins[j];
       if (std::isfinite(range) && range > 0.0) {
         active_.push_back(j);
-        inv_range_.push_back(1.0 / range);
+        col_range_.push_back(range);
       }
     }
     // Effectively 1-D design: all active columns identical in rpm_x and Xtest
@@ -388,7 +388,8 @@ class PredictKernel {
     double acc = 0.0;
     for (std::size_t a = 0; a < active_.size(); ++a) {
       const int j = active_[a];
-      const double z = (rx(i, j) - xt(r, j)) * inv_range_[a];
+      // Divide as R's reference does; a precomputed 1/range can flip exact ties.
+      const double z = (rx(i, j) - xt(r, j)) / col_range_[a];
       if (dist_code_ == kMregDistL1) acc += std::fabs(z);
       else if (dist_code_ == kMregDistNNS) acc += std::fabs(z) + z * z;
       else acc += z * z;
@@ -485,7 +486,7 @@ class PredictKernel {
   bool is_class_;
   const RankComponents& rank_;
   std::vector<int> active_;
-  std::vector<double> inv_range_;
+  std::vector<double> col_range_;
   bool is_1d_ = false;
   int axis_ = -1;
   std::vector<double> sc_;
