@@ -11,6 +11,8 @@
 #include <mutex>
 #include <random>
 #include <set>
+#include <stdexcept>
+#include <string>
 #include <thread>
 #include <vector>
 
@@ -54,6 +56,27 @@ int main() {
   nns::set_num_threads(0);
   check(nns::get_num_threads() >= 1, "set_num_threads(0) restores the automatic count");
   distinct_threads(0, 4, 1);  // empty range is a no-op
+
+  // A throwing chunk reaches the caller instead of std::terminate, whether a
+  // spawned worker (index 0) or the calling thread (index 999) runs it.
+  for (std::size_t bad : {std::size_t{0}, std::size_t{999}}) {
+    std::atomic<int> chunks{0};
+    bool caught = false;
+    try {
+      nns::parallel_for(
+          0, 1000,
+          [&](std::size_t b, std::size_t e) {
+            ++chunks;
+            if (b <= bad && bad < e) throw std::runtime_error("chunk failed");
+          },
+          4, 0);
+    } catch (const std::runtime_error& ex) {
+      caught = std::string(ex.what()) == "chunk failed";
+    }
+    check(caught, "worker exception rethrown on the caller, index " + std::to_string(bad));
+    check(chunks == 4, "every chunk ran before the rethrow");
+  }
+  check(distinct_threads(1000, 4, 0) == 4, "parallel_for works after an exception");
 
   // Results are identical for any thread count.
   std::mt19937_64 g(3);
