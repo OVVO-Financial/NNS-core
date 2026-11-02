@@ -98,7 +98,7 @@ void parallel_for(std::size_t begin, std::size_t end, Func&& func, int n_threads
 
   std::exception_ptr error;
   std::mutex error_mu;
-  auto run = [&error, &error_mu](Func& f, std::size_t b, std::size_t e) {
+  auto run = [&error, &error_mu](auto& f, std::size_t b, std::size_t e) {
     try {
       f(b, e);
     } catch (...) {

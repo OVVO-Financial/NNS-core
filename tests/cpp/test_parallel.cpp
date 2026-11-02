@@ -40,6 +40,10 @@ std::size_t distinct_threads(std::size_t n, int n_threads, std::size_t work) {
   return ids.size();
 }
 
+std::atomic<std::size_t> g_free_items{0};
+
+void count_items(std::size_t b, std::size_t e) { g_free_items += e - b; }
+
 }  // namespace
 
 int main() {
@@ -77,6 +81,9 @@ int main() {
     check(chunks == 4, "every chunk ran before the rethrow");
   }
   check(distinct_threads(1000, 4, 0) == 4, "parallel_for works after an exception");
+
+  nns::parallel_for(0, 8, count_items, 4);  // a plain function, not a lambda
+  check(g_free_items == 8, "free function processes every index");
 
   // Results are identical for any thread count.
   std::mt19937_64 g(3);
