@@ -109,6 +109,11 @@
       "id": "TS-11",
       "r_src": "src/internal_functions.cpp",
       "summary": "ARMA.seas.weighting returned all-zero weights when (VarCV - CV) / sqrt(lag) sums to 0, so NNS.ARMA forecast 0; R falls back to equal weights in its NNS.ARMA wrapper (R/ARMA.R), the native function still returns zeros"
+    },
+    {
+      "id": "TS-CONST",
+      "r_src": "src/NNS_seas.cpp",
+      "summary": "constant series and components were detected by a computed sd of exactly 0, which a repeated decimal misses (rep(.1, 20) gave period 4); equal CVs were ordered by std::sort"
     }
   ]
 }

@@ -511,6 +511,9 @@ add_seas("zero_mean", sz - mean(sz))
 add_seas("constant", rep(5, 20))
 # An all-zero component has CV 0, not 0/0.
 add_seas("alternating", rep(c(0, 1), 10))
+# A repeated decimal doesn't centre to exactly 0, so constancy comes from the raw values.
+add_seas("constant_decimal", rep(.1, 20), r_fix = "TS-CONST")
+add_seas("alternating_decimal", rep(c(.1, 1), 10), r_fix = "TS-CONST")
 add_seas("short", c(1, 2, 3, 4), r_fix = NULL)
 
 # ---- ARMA seasonal weights (ARMA.seas.weighting) -----------------------------

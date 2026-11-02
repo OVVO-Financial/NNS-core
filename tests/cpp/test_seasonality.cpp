@@ -73,5 +73,15 @@ int main() {
   const nns::SeasonalityResult c = seas(std::vector<double>(20, 5.0));
   check(c.periods == std::vector<int>({1}), "constant series has no period");
 
+  // A repeated 0.1 doesn't centre to exactly 0, which used to rank periods by
+  // rounding noise (rep(.1, 20) gave period 4).
+  const nns::SeasonalityResult d = seas(std::vector<double>(20, 0.1));
+  check(d.best_period == 1 && d.periods == std::vector<int>({1}), "constant decimal series");
+  std::vector<double> dec(20);
+  for (int i = 0; i < 20; ++i) dec[i] = (i % 2) ? 1.0 : 0.1;
+  const nns::SeasonalityResult da = seas(dec);
+  check(da.best_period == 2, "alternating decimal best period 2");
+  check(da.all_coef_var == std::vector<double>(4, 0.0), "alternating decimal CVs are 0");
+
   return nns_test::check_summary("test_seasonality");
 }
