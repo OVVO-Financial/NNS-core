@@ -22,7 +22,7 @@
 //
 // Functions: lpm upm lpm_v upm_v lpm_ratio_v upm_ratio_v co_lpm co_upm d_lpm
 // d_upm co_lpm_v co_upm_v d_lpm_v d_upm_v clpm_nd cupm_nd dpm_nd
-// clpm_nd_batch pm_matrix gravity mode partition dep_matrix distance_path
+// clpm_nd_batch pm_matrix gravity mode partition dep_matrix dep_pair distance_path
 // distance_bulk fast_lm duplicate_column_map mreg_setup mreg_predict
 // mreg_predict_path xstar_path.
 //
@@ -206,6 +206,17 @@ std::vector<double> evaluate(const std::string& func, const Flags& f) {
     const nns::DepMatrixResult r = nns::dep_matrix(X.data(), X.nrow, X.ncol, flag(f, "asym"));
     append(out, r.correlation);
     append(out, r.dependence);
+  } else if (func == "dep_pair") {
+    // quad_xy / quad_yx: partition cell ids, compared only for equality.
+    const std::vector<double> x = list(f, "x"), y = list(f, "y");
+    const std::vector<double> qa = list(f, "quad_xy"), qb = list(f, "quad_yx");
+    if (y.size() != x.size() || qa.size() != x.size() || qb.size() != x.size())
+      die("dep_pair: x, y, quad_xy and quad_yx must have the same length");
+    const std::vector<uint64_t> a(qa.begin(), qa.end()), b(qb.begin(), qb.end());
+    const nns::DepResult r =
+        nns::dep_pair(x.data(), y.data(), x.size(), a.data(), b.data(), flag(f, "asym"));
+    out.push_back(r.correlation);
+    out.push_back(r.dependence);
   } else if (func == "distance_path" || func == "distance_bulk") {
     const Matrix R = matrix(f, "RPM"), T = matrix(f, "Xtest");
     const std::vector<double> yhat = list(f, "yhat");

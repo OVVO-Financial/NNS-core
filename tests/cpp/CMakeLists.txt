@@ -13,6 +13,7 @@ set(NNSCORE_CPP_TESTS
     test_partition
     test_mreg
     test_parallel
+    test_dependence
 )
 
 foreach(test_name IN LISTS NNSCORE_CPP_TESTS)

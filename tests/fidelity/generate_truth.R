@@ -220,6 +220,21 @@ for (nm in c("X3", "X3t")) {
   }
 }
 
+# Degree-0 counts with targets ON data values (ties): CLPM + CUPM + DPM must
+# partition the sample. R 13.3 counted ties as both lower and discordant/upper;
+# fixed in the CORE-09 R patch, so these cases are tagged r_fix.
+Xtie <- cbind(disc[1:100], disc[101:200], disc[201:300])
+ttie <- apply(Xtie, 2, median)
+for (nrm in c(TRUE, FALSE)) {
+  sc <- list(degree = 0, norm = nrm)
+  add_case(sprintf("clpm_nd_tie_n%d", nrm), "clpm_nd", Co.LPM_nD(Xtie, ttie, 0, nrm),
+           scalars = sc, vectors = list(target = ttie), matrices = list(data = Xtie))
+  add_case(sprintf("cupm_nd_tie_n%d", nrm), "cupm_nd", Co.UPM_nD(Xtie, ttie, 0, nrm),
+           scalars = sc, vectors = list(target = ttie), matrices = list(data = Xtie), r_fix = "CORE-09")
+  add_case(sprintf("dpm_nd_tie_n%d", nrm), "dpm_nd", DPM_nD(Xtie, ttie, 0, nrm),
+           scalars = sc, vectors = list(target = ttie), matrices = list(data = Xtie), r_fix = "CORE-09")
+}
+
 # ---- gravity / mode --------------------------------------------------------
 cvec <- list(
   normal = round(rnorm(500), 6), ret = ret, disc = disc, small4 = c(0, 0, 1, 1),
@@ -240,6 +255,10 @@ for (nm in names(cvec)) {
 big <- c(3e9, 3e9, 3e9, 1, 2)
 add_case("mode_discrete_3e9", "mode", NNS.mode(big, discrete = TRUE, multi = FALSE),
          scalars = list(discrete = TRUE, multi = FALSE), vectors = list(x = big), r_fix = "CORE-07")
+# Equally high peaks: the single mode averages them instead of taking one by sort order.
+eqp <- rep(0:19, each = 400)
+add_case("mode_equal_peaks", "mode", NNS.mode(eqp, discrete = FALSE, multi = FALSE),
+         scalars = list(discrete = FALSE, multi = FALSE), vectors = list(x = eqp), r_fix = "MODE-TIES")
 
 # ---- partition (NNS_part_cpp) ----------------------------------------------
 px <- ret[1:300]; py <- ret[301:600]
@@ -264,12 +283,46 @@ add_case("partition_inf", "partition",
          strings = list(noise_reduction = "off"))
 
 # ---- dependence (NNS_dep_matrix_cpp) ---------------------------------------
+# NNS_dep_matrix_cpp is not called by any R function and was removed from R as
+# dead code in a later patch; only emit these cases when the R build has it.
+# The random draws happen either way so the cases after this block keep their
+# inputs.
 Xd <- cbind(ret[1:300], ret[301:600], 0.5 * ret[1:300] + ret[301:600])
-dm <- NNS:::NNS_dep_matrix_cpp(Xd)
-add_case("dep_matrix_ret", "dep_matrix", c(dm$Correlation, dm$Dependence), matrices = list(X = Xd))
 Xi <- matrix(round(rnorm(900), 6), ncol = 3)
-dm <- NNS:::NNS_dep_matrix_cpp(Xi)
-add_case("dep_matrix_indep", "dep_matrix", c(dm$Correlation, dm$Dependence), matrices = list(X = Xi))
+if (exists("NNS_dep_matrix_cpp", envir = asNamespace("NNS"), inherits = FALSE)) {
+  dm <- NNS:::NNS_dep_matrix_cpp(Xd)
+  add_case("dep_matrix_ret", "dep_matrix", c(dm$Correlation, dm$Dependence), matrices = list(X = Xd))
+  dm <- NNS:::NNS_dep_matrix_cpp(Xi)
+  add_case("dep_matrix_indep", "dep_matrix", c(dm$Correlation, dm$Dependence), matrices = list(X = Xi))
+}
+
+# ---- dependence (NNS_dep_pair_cpp, which NNS.dep calls) ---------------------
+# Quadrant labels go to R as strings and to the core as integer cell ids.
+dep_quads <- function(x, y) {
+  l <- length(x)
+  q <- NNS:::NNS_part_cpp(x, y, "XONLY", as.integer(max(ceiling(log(l, 2)), 1L)),
+                          as.integer(max(8L, as.integer(l / 8L))), FALSE, "off", TRUE)$quadrant
+  match(q, unique(q))
+}
+add_dep_pair <- function(name, x, y, qa, qb, r_fix = NULL) {
+  for (asym in c(FALSE, TRUE)) {
+    d <- NNS:::NNS_dep_pair_cpp(as.numeric(x), as.numeric(y), as.character(qa), as.character(qb), asym)
+    add_case(sprintf("dep_pair_%s_a%d", name, asym), "dep_pair", c(d$Correlation, d$Dependence),
+             scalars = list(asym = asym),
+             vectors = list(x = x, y = y, quad_xy = qa, quad_yx = qb), r_fix = r_fix)
+  }
+}
+add_dep_pair("ret", ret[1:300], ret[301:600], dep_quads(ret[1:300], ret[301:600]),
+             dep_quads(ret[301:600], ret[1:300]))
+# Every point discordant: R 13.3 reported Correlation +1 (DEP-01).
+add_dep_pair("negative", ret[1:300], -ret[1:300], dep_quads(ret[1:300], -ret[1:300]),
+             dep_quads(-ret[1:300], ret[1:300]), r_fix = "DEP-01")
+# 49 * (1/49) != 1, so R 13.3 gave dep(b, b) = 0.51 (DEP-08).
+bdep <- c(rep(0, 51), rep(1, 49))
+add_dep_pair("binary_self", bdep, bdep, bdep + 1, bdep + 1, r_fix = "DEP-08")
+# Points on the cell mean were counted as co-lower and discordant (CORE-09).
+xtie <- rep(c(-1, 0, 1), 33); ytie <- rep(c(0, 1, -1, 0, -1, 1, 1, 0, -1), 11)
+add_dep_pair("ties", xtie, ytie, rep(1, 99), rep(1, 99), r_fix = "CORE-09")
 
 # ---- distance (NNS_distance_path_cpp / bulk) --------------------------------
 RPM <- matrix(round(runif(120 * 3), 6), ncol = 3); yh <- round(rnorm(120), 6)
@@ -307,7 +360,10 @@ for (red in 0:3) {
     add_case(sprintf("mreg_setup_r%d_c%d", red, cls), "mreg_setup", s$RPM,
              scalars = list(reducer = red, is_class = cls),
              vectors = list(y = yy, boundaries = bvec, boundary_lengths = blen),
-             matrices = list(X = Xm))
+             matrices = list(X = Xm),
+             # reducer 2 ("mode"): R 13.3's native setup took the most frequent
+             # exact value; fixed to NNS.mode in the CORE-03 R patch.
+             r_fix = if (red == 2L) "CORE-03" else NULL)
   }
 }
 s <- NNS:::NNS_mreg_setup_cpp(Xm[, 1:3], ym, bounds[1:3], 3L, FALSE)
