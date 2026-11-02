@@ -295,7 +295,9 @@ std::vector<double> evaluate(const std::string& func, const Flags& f) {
       for (double m : list(f, "modulo")) mods.push_back(static_cast<int>(m));
     const nns::SeasonalityResult r = nns::seasonality(
         x.data(), x.size(), mods.empty() ? nullptr : mods.data(), mods.size(),
-        flag(f, "mod_only", true));
+        flag(f, "mod_only", true),
+        has(f, "max_period") ? std::optional<int>(static_cast<int>(scalar(f, "max_period")))
+                             : std::nullopt);
     out.push_back(r.best_period);
     for (int p : r.all_periods) out.push_back(p);
     append(out, r.all_coef_var);

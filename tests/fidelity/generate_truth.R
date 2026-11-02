@@ -492,34 +492,43 @@ add_sd("shift_1e6_d3", 3, c(.01, .07) + 1e6, c(0, .08) + 1e6, r_fix = "SD-SHIFT"
 add_sd("shift_20000_d2", 2, c(.01, .03) + 20000, c(0, .04) + 20000, r_fix = "SD-SHIFT")
 
 # ---- seasonality (NNS_seas_cpp) ---------------------------------------------
-# R 13.3 scored three reverse-stride subsamples per lag; R now scores all m
-# component series, weighted by length, with < and a near-zero-mean sd rule.
-add_seas <- function(name, x, modulo = NULL, mod_only = TRUE, r_fix = "TS-04") {
-  s <- NNS:::NNS_seas_cpp(as.numeric(x), if (is.null(modulo)) NULL else as.integer(modulo), mod_only)
+# Every component series of each lag, dispersion by the Gini mean difference.
+add_seas <- function(name, x, modulo = NULL, mod_only = TRUE, max_period = NULL) {
+  s <- NNS:::NNS_seas_cpp(as.numeric(x), if (is.null(modulo)) NULL else as.integer(modulo), mod_only,
+                          if (is.null(max_period)) NULL else as.integer(max_period))
   ap <- s$all.periods
   vec <- list(x = x)
   if (!is.null(modulo)) vec$modulo <- modulo
+  sc <- list(mod_only = mod_only)
+  if (!is.null(max_period)) sc$max_period <- max_period
   add_case(sprintf("seas_%s", name), "seasonality",
            c(s$best.period, ap$Period, ap$Coefficient.of.Variation,
              ap$Variable.Coefficient.of.Variation),
-           scalars = list(mod_only = mod_only), vectors = vec, r_fix = r_fix)
+           scalars = sc, vectors = vec)
 }
 ap_x <- as.numeric(AirPassengers)
 add_seas("airpassengers", ap_x)
 add_seas("airpassengers_mod12", ap_x, 12)
 add_seas("airpassengers_mod12_all", ap_x, 12, mod_only = FALSE)
+add_seas("airpassengers_mod40", ap_x, 40)
 add_seas("lynx", as.numeric(lynx))
 add_seas("toy", c(10, 18, 11, 21, 12, 20, 13, 23))
 add_seas("odd", ap_x[1:143])
 sz <- sin(2 * pi * (1:96) / 12)
 add_seas("zero_mean", sz - mean(sz))
+add_seas("sine", 10 + sz)
+add_seas("sine_noisy", round(10 + sz + rnorm(96, 0, .2), 4))
+add_seas("sine_max5", 10 + sz, max_period = 5)
+# A modulo period beyond the scan limit is scored, not given CV(X).
+add_seas("sine_max5_mod12", 10 + sz, 12, max_period = 5)
+add_seas("sine_max5_mod12_all", 10 + sz, 12, mod_only = FALSE, max_period = 5)
 add_seas("constant", rep(5, 20))
-# An all-zero component has CV 0, not 0/0.
 add_seas("alternating", rep(c(0, 1), 10))
-# A repeated decimal doesn't centre to exactly 0, so constancy comes from the raw values.
-add_seas("constant_decimal", rep(.1, 20), r_fix = "TS-CONST")
-add_seas("alternating_decimal", rep(c(.1, 1), 10), r_fix = "TS-CONST")
-add_seas("short", c(1, 2, 3, 4), r_fix = NULL)
+add_seas("constant_decimal", rep(.1, 20))
+add_seas("alternating_decimal", rep(c(.1, 1), 10))
+add_seas("linear", as.numeric(1:40))
+add_seas("linear_across_zero", (1:40) - 20.5)
+add_seas("short", c(1, 2, 3, 4))
 
 # ---- ARMA seasonal weights (ARMA.seas.weighting) -----------------------------
 # NNS.ARMA falls back to equal weights in its R wrapper when

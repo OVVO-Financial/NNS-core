@@ -101,19 +101,9 @@
       "summary": "SD verdicts compared curves exactly, so rounding noise decided them; now a 64 * DBL_EPSILON relative tie tolerance with compensated prefix sums"
     },
     {
-      "id": "TS-04",
-      "r_src": "src/NNS_seas.cpp",
-      "summary": "NNS.seas scored three reverse-stride subsamples per lag with an unweighted mean and <=, instead of all m component series weighted by length with <; a mean of exactly 0 fell back to 1/|acf1| and a near-zero mean was not caught"
-    },
-    {
       "id": "TS-11",
       "r_src": "src/internal_functions.cpp",
       "summary": "ARMA.seas.weighting returned all-zero weights when (VarCV - CV) / sqrt(lag) sums to 0, so NNS.ARMA forecast 0; R falls back to equal weights in its NNS.ARMA wrapper (R/ARMA.R), the native function still returns zeros"
-    },
-    {
-      "id": "TS-CONST",
-      "r_src": "src/NNS_seas.cpp",
-      "summary": "constant series and components were detected by a computed sd of exactly 0, which a repeated decimal misses (rep(.1, 20) gave period 4); equal CVs were ordered by std::sort"
     },
     {
       "id": "SD-SHIFT",
