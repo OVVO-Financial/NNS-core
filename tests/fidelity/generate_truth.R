@@ -49,7 +49,7 @@ add_case <- function(name, func, expected, scalars = list(), vectors = list(),
     sprintf('"func":"%s"', func),
     sprintf('"expected":%s', arr(expected))
   )
-  if (!is.null(tol)) parts <- c(parts, sprintf('"tol":%s', num(tol)))
+  if (!is.null(tol)) parts <- c(parts, sprintf('"tol":%s', if (length(tol) > 1) arr(tol) else num(tol)))
   if (!is.null(r_fix)) parts <- c(parts, sprintf('"r_fix":%s', str_json(r_fix)))
   for (k in names(scalars)) parts <- c(parts, sprintf('"%s":%s', k, num(as.numeric(scalars[[k]]))))
   for (k in names(vectors)) parts <- c(parts, sprintf('"%s":%s', k, arr(vectors[[k]])))
@@ -285,8 +285,10 @@ add_case("distance_bulk", "distance_bulk", NNS:::NNS_distance_bulk_cpp(RPM, yh, 
 i500 <- 1:500
 fx <- 1e9 + i500 * 1e-3; fy <- ((i500 * 7919) %% 1000) / 1000
 z <- NNS:::fast_lm(fx, fy)
+# A fitted value cancels terms of size |b0| + |b1 x|, so its rounding (FMA or not) scales with that.
+fit_tol <- 4 * .Machine$double.eps * (abs(z$coef[1]) + abs(z$coef[2] * fx))
 add_case("fast_lm_offset", "fast_lm", c(z$coef, z$fitted.values), vectors = list(x = fx, y = fy),
-         tol = 1e-12)
+         tol = c(1e-12, 1e-12, fit_tol))
 z <- NNS:::fast_lm(xr, yr)
 add_case("fast_lm_small", "fast_lm", c(z$coef, z$fitted.values), vectors = list(x = xr, y = yr))
 

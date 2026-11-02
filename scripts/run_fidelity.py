@@ -5,11 +5,12 @@ installed R NNS package), drives the portable C++ core via the `nns_eval` CLI on
 the same inputs, and asserts every value matches within tolerance.
 
 `expected` may be a scalar or a list (vectors and column-major matrices); every
-element is compared. A case may carry its own `tol`. Cases tagged `r_fix`
-cover an R bug that NNS-core fixes ahead of R; with --xfail-r-fixes a value
-mismatch on such a case is reported as XFAIL (expected against an R build
-without the fix) and does not fail the run, and a pass is reported as XPASS.
-An evaluator failure or unparsable output always fails.
+element is compared. A case may carry its own `tol`, a scalar or one per
+element. Cases tagged `r_fix` cover an R bug that NNS-core fixes ahead of R;
+with --xfail-r-fixes a value mismatch on such a case is reported as XFAIL
+(expected against an R build without the fix) and does not fail the run, and a
+pass is reported as XPASS. An evaluator failure or unparsable output always
+fails.
 
 Exit code 0 only if every case passes. The sync workflow uses this gate to
 decide whether a sync PR may be marked ready: no pass, no ready PR.
@@ -66,13 +67,17 @@ def within_tol(got: float, want: float, tol: float) -> bool:
     return diff <= tol or diff <= tol * max(abs(got), abs(want))
 
 
-def compare(got: list[float], want: list[float], tol: float) -> tuple[bool, float, str]:
+def compare(got: list[float], want: list[float],
+            tol: float | list[float]) -> tuple[bool, float, str]:
     if len(got) != len(want):
         return False, float("nan"), f"length {len(got)} != {len(want)}"
+    tols = tol if isinstance(tol, list) else [tol] * len(want)
+    if len(tols) != len(want):
+        return False, float("nan"), f"tol length {len(tols)} != {len(want)}"
     worst = 0.0
     ok = True
-    for g, w in zip(got, want):
-        if not within_tol(g, w, tol):
+    for g, w, t in zip(got, want, tols):
+        if not within_tol(g, w, t):
             ok = False
         if not (math.isnan(g) or math.isnan(w) or g == w):
             worst = max(worst, abs(g - w))
@@ -116,7 +121,8 @@ def main() -> int:
     rows: list[tuple[str, str, int, float, str]] = []
     failures = xfail = xpass = 0
     for case in cases:
-        tol = args.tol if args.tol is not None else float(case.get("tol", default_tol))
+        tol = args.tol if args.tol is not None else case.get("tol", default_tol)
+        tol = [float(t) for t in tol] if isinstance(tol, list) else float(tol)
         want = as_list(case["expected"])
         got, err = run_case(args.eval_bin, case)
         if got is None:

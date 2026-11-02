@@ -43,6 +43,12 @@ class WithinTolTest(unittest.TestCase):
         self.assertFalse(compare([INF] * 3, want, 1e-9)[0])
         self.assertFalse(compare([0.5, 1.0], want, 1e-9)[0])
 
+    def test_compare_per_element_tolerance(self):
+        want = [4e6, 0.5]
+        self.assertTrue(compare([4e6, 0.5 + 1e-9], want, [1e-12, 1e-8])[0])
+        self.assertFalse(compare([4e6, 0.5 + 1e-9], want, [1e-12, 1e-12])[0])
+        self.assertFalse(compare(list(want), want, [1e-12])[0])
+
 
 class XfailGateTest(unittest.TestCase):
     """--xfail-r-fixes only excuses a value mismatch on an r_fix case."""
