@@ -43,6 +43,18 @@ int main() {
   // For a symmetric series about the target the two sides are equal.
   check_close("lpm == upm (symmetric)", lpm1, upm1, tol);
 
+  // Degree 0 with points tied with the target: CLPM (all <=), CUPM (all >) and
+  // DPM (neither) partition the sample. R 13.3 with the degree-0 tie patch gives
+  // 1/2, 1/6, 1/3; unpatched R 13.3 gives 1/2, 1/2, 2/3.
+  const double tied[] = {0, -1, 0, 1, 1, -1,   // x
+                         0, 0, 1, 1, -1, -1};  // y
+  const double origin[] = {0, 0};
+  for (bool norm : {true, false}) {
+    check_close("degree-0 tied Co.LPM_nD", nns::clpm_nd(tied, 6, 2, origin, 0.0, norm), 0.5, 0.0);
+    check_close("degree-0 tied Co.UPM_nD", nns::cupm_nd(tied, 6, 2, origin, 0.0, norm), 1.0 / 6.0, 0.0);
+    check_close("degree-0 tied DPM_nD", nns::dpm_nd(tied, 6, 2, origin, 0.0, norm), 1.0 / 3.0, 0.0);
+  }
+
   if (g_failures != 0) {
     std::fprintf(stderr, "%d partial moment smoke check(s) failed\n",
                  g_failures);
