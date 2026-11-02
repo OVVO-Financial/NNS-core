@@ -143,8 +143,22 @@ void pathological_bin_counts() {
 
 }  // namespace
 
+// Twenty equally frequent values give equally high smoothed peaks; the single
+// mode averages them (R 13.3 picked 9.9505024998740641 by sort order).
+void equal_peak_cases() {
+  std::vector<double> x;
+  for (int v = 0; v < 20; ++v) x.insert(x.end(), 400, static_cast<double>(v));
+  const std::vector<double> all = nns::mode(x.data(), x.size(), false, true);
+  long double sum = 0.0L;
+  for (double v : all) sum += v;
+  check_close("equal peaks, mean of the multi modes", mode1(x, false),
+              static_cast<double>(sum / all.size()), 0.0);
+  check_close("equal peaks, R with the tie patch", mode1(x, false), 9.4411759049991115, 1e-14);
+}
+
 int main() {
   discrete_mode_cases();
+  equal_peak_cases();
   tiny_histogram_cases();
   pathological_bin_counts();
   return nns_test::check_summary("test_central_tendencies");

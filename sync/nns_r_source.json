@@ -69,6 +69,11 @@
       "id": "DEP-08",
       "r_src": "src/NNS_dep.cpp",
       "summary": "copula_signed compared the concordant share count * (1/n) with 1, false for many n (49 * (1/49) != 1)"
+    },
+    {
+      "id": "MODE-TIES",
+      "r_src": "src/central_tendencies.cpp",
+      "summary": "NNS.mode ordered equally high peaks with std::sort, so the kept peaks and the single mode depended on the standard library; now bin order breaks ties and the single mode averages the highest peaks"
     }
   ]
 }

@@ -255,6 +255,10 @@ for (nm in names(cvec)) {
 big <- c(3e9, 3e9, 3e9, 1, 2)
 add_case("mode_discrete_3e9", "mode", NNS.mode(big, discrete = TRUE, multi = FALSE),
          scalars = list(discrete = TRUE, multi = FALSE), vectors = list(x = big), r_fix = "CORE-07")
+# Equally high peaks: the single mode averages them instead of taking one by sort order.
+eqp <- rep(0:19, each = 400)
+add_case("mode_equal_peaks", "mode", NNS.mode(eqp, discrete = FALSE, multi = FALSE),
+         scalars = list(discrete = FALSE, multi = FALSE), vectors = list(x = eqp), r_fix = "MODE-TIES")
 
 # ---- partition (NNS_part_cpp) ----------------------------------------------
 px <- ret[1:300]; py <- ret[301:600]
