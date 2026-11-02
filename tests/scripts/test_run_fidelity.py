@@ -1,7 +1,11 @@
 import importlib.util
+import json
 import math
+import sys
+import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 _spec = importlib.util.spec_from_file_location(
     "run_fidelity", Path(__file__).resolve().parents[2] / "scripts" / "run_fidelity.py")
@@ -38,6 +42,40 @@ class WithinTolTest(unittest.TestCase):
         self.assertTrue(compare(list(want), want, 1e-9)[0])
         self.assertFalse(compare([INF] * 3, want, 1e-9)[0])
         self.assertFalse(compare([0.5, 1.0], want, 1e-9)[0])
+
+
+class XfailGateTest(unittest.TestCase):
+    """--xfail-r-fixes only excuses a value mismatch on an r_fix case."""
+
+    def gate(self, run_case_result):
+        case = {"name": "c", "func": "f", "expected": [1.0, 2.0], "r_fix": "X"}
+        with tempfile.TemporaryDirectory() as tmp:
+            truth = Path(tmp) / "truth.json"
+            truth.write_text(json.dumps({"cases": [case]}), encoding="utf-8")
+            argv = ["run_fidelity.py", "--truth", str(truth), "--eval-bin", str(truth),
+                    "--report", str(Path(tmp) / "report.md"), "--xfail-r-fixes"]
+            with mock.patch.object(sys, "argv", argv), \
+                    mock.patch.object(run_fidelity, "run_case", return_value=run_case_result), \
+                    mock.patch("builtins.print"):
+                return run_fidelity.main()
+
+    def test_value_mismatch_is_xfail(self):
+        self.assertEqual(self.gate(([1.0, 3.0], "")), 0)
+
+    def test_evaluator_failure_fails(self):
+        self.assertEqual(self.gate((None, "terminate called")), 1)
+
+    def test_length_mismatch_is_xfail(self):
+        self.assertEqual(self.gate(([1.0], "")), 0)
+
+    def test_unparsable_output_fails(self):
+        with mock.patch.object(run_fidelity.subprocess, "run") as run:
+            run.return_value.returncode = 0
+            run.return_value.stdout = "1,oops"
+            got, err = run_fidelity.run_case("nns_eval", {"func": "f"})
+        self.assertIsNone(got)
+        self.assertIn("unparsable", err)
+        self.assertEqual(self.gate((got, err)), 1)
 
 
 if __name__ == "__main__":

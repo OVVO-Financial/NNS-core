@@ -6,9 +6,10 @@ the same inputs, and asserts every value matches within tolerance.
 
 `expected` may be a scalar or a list (vectors and column-major matrices); every
 element is compared. A case may carry its own `tol`. Cases tagged `r_fix`
-cover an R bug that NNS-core fixes ahead of R; with --xfail-r-fixes a failure
-of such a case is reported as XFAIL (expected against an R build without the
-fix) and does not fail the run, and a pass is reported as XPASS.
+cover an R bug that NNS-core fixes ahead of R; with --xfail-r-fixes a value
+mismatch on such a case is reported as XFAIL (expected against an R build
+without the fix) and does not fail the run, and a pass is reported as XPASS.
+An evaluator failure or unparsable output always fails.
 
 Exit code 0 only if every case passes. The sync workflow uses this gate to
 decide whether a sync PR may be marked ready: no pass, no ready PR.
@@ -84,7 +85,10 @@ def run_case(eval_bin: str, case: dict) -> tuple[list[float] | None, str]:
     if proc.returncode != 0:
         return None, proc.stderr.strip()
     text = proc.stdout.strip()
-    return ([float(t) for t in text.split(",")] if text else []), ""
+    try:
+        return ([float(t) for t in text.split(",")] if text else []), ""
+    except ValueError:
+        return None, f"unparsable output {text[:60]!r}"
 
 
 def main() -> int:
@@ -123,7 +127,9 @@ def main() -> int:
         if ok:
             status = "XPASS" if (fix and args.xfail_r_fixes) else "ok"
             xpass += status == "XPASS"
-        elif fix and args.xfail_r_fixes:
+        # A crash is never the missing R fix; any mismatch, even in length (a
+        # fix can change how many seasonal periods come back), can be.
+        elif fix and args.xfail_r_fixes and got is not None:
             status = "XFAIL"
             xfail += 1
         else:
