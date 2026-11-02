@@ -8,6 +8,7 @@
 // SPDX-License-Identifier: GPL-3.0-only
 #include "nns/stochastic_dominance.hpp"
 
+#include <limits>
 #include <vector>
 
 #include "check.hpp"
@@ -98,6 +99,40 @@ int main() {
   check(zx.size() == 10000, "qnorm_1e4 size");
   check(ssd(zx, zy) == 1, "SSD 1e4 compensated sums");
   check(tsd(zx, zy) == 1, "TSD 1e4 compensated sums");
+
+  // A common shift keeps the verdict: the tolerances used to grow with the
+  // level squared, so +20000 turned "no TSD" into TSD.
+  auto shift = [](V v, double s) {
+    for (double& e : v) e += s;
+    return v;
+  };
+  const V ax = {-.0085, -.0152, .0068}, ay = {-.0021, -.0033, -.0167};
+  check(tsd(shift(ax, 20000), shift(ay, 20000)) == tsd(ax, ay), "TSD +20000 unchanged");
+  const V bx = {.01, .07}, by = {0, .08};
+  check(tsd(shift(bx, 1e6), shift(by, 1e6)) == 1, "TSD +1e6");
+  const V bm = {.01 + 1e6, .07 + 1e6, 0 + 1e6, .08 + 1e6};  // cbind(x, y) + 1e6
+  check(nns::tsd(bm.data(), 2, 2) == std::vector<int>({0}), "TSD efficient set +1e6");
+  const V cx = {.01, .03}, cy = {0, .04};
+  check(ssd(shift(cx, 20000), shift(cy, 20000)) == 1, "SSD +20000");
+  check(tsd(shift(cx, 20000), shift(cy, 20000)) == 1, "TSD +20000");
+  V dx = {0, .01, .03}, dy = {0, .02, .02}, dz = {0, .02, .02};
+  for (int i = 1; i <= 996; ++i) {
+    dx.push_back(i);
+    dy.push_back(i);
+    dz.push_back(i);
+  }
+  dx.push_back(1000);
+  dy.push_back(999);
+  dz.push_back(1000);
+  for (double s : {20000.0, 1e6}) {
+    check(tsd(shift(dx, s), shift(dy, s)) == 0, "TSD long tails, no dominance");
+    check(tsd(shift(dz, s), shift(dx, s)) == 1, "TSD long tails, dominance");
+  }
+  // An infinite value has no midrange to centre on; the tests must still return.
+  const double inf = std::numeric_limits<double>::infinity();
+  const V ix = {0, 1, inf}, iy = {0, 1, 2};
+  check(fsd(ix, iy, false) == 0 && fsd(iy, ix, false) == 0, "continuous FSD with +Inf");
+  check(ssd(ix, iy) == 0 && tsd(ix, iy) == 0, "SSD/TSD with +Inf");
 
   return nns_test::check_summary("test_stochastic_dominance");
 }

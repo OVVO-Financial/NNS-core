@@ -114,6 +114,11 @@
       "id": "TS-CONST",
       "r_src": "src/NNS_seas.cpp",
       "summary": "constant series and components were detected by a computed sd of exactly 0, which a repeated decimal misses (rep(.1, 20) gave period 4); equal CVs were ordered by std::sort"
+    },
+    {
+      "id": "SD-SHIFT",
+      "r_src": "src/SD.cpp",
+      "summary": "SD tie tolerances scaled with |value|^degree, so a common shift (a price level of 20000) grew the TSD tolerance past real differences; pairs are now compared centred on their joint midrange"
     }
   ]
 }

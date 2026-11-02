@@ -485,6 +485,11 @@ add_sd("tol_spread", 2, zq + 0.37, 2 * zq + 0.37, r_fix = "SDA-09")
 zr <- round(qnorm(ppoints(1e4)), 1)
 add_sd("tol_spread_1e4_d2", 2, 0.1 * zr + 0.3, 0.2 * zr + 0.3, r_fix = "SDA-09")
 add_sd("tol_spread_1e4_d3", 3, 0.1 * zr + 0.3, 0.2 * zr + 0.3, r_fix = "SDA-09")
+# A common shift keeps the verdict; the tolerances used to grow with the level squared.
+add_sd("shift_20000_d3", 3, c(-.0085, -.0152, .0068) + 20000, c(-.0021, -.0033, -.0167) + 20000,
+       r_fix = "SD-SHIFT")
+add_sd("shift_1e6_d3", 3, c(.01, .07) + 1e6, c(0, .08) + 1e6, r_fix = "SD-SHIFT")
+add_sd("shift_20000_d2", 2, c(.01, .03) + 20000, c(0, .04) + 20000, r_fix = "SD-SHIFT")
 
 # ---- seasonality (NNS_seas_cpp) ---------------------------------------------
 # R 13.3 scored three reverse-stride subsamples per lag; R now scores all m
