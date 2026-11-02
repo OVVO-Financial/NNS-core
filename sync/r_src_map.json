@@ -44,7 +44,7 @@
       "core_paths": ["src/dependence.cpp", "include/nns/dependence.hpp"],
       "auto": false,
       "fidelity_covered": true,
-      "required_r_signatures": ["NNS_dep_pair_cpp(", "NNS_dep_matrix_cpp("]
+      "required_r_signatures": ["NNS_dep_pair_cpp(", "NNS_dep_levels_cpp(", "NNS_dep_local_cpp("]
     },
     {
       "r_src": "src/NNS_distance.cpp",

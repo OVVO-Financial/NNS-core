@@ -282,47 +282,76 @@ add_case("partition_inf", "partition",
          scalars = list(order = 2, obs_req = 8), vectors = list(x = ix, y = iy),
          strings = list(noise_reduction = "off"))
 
-# ---- dependence (NNS_dep_matrix_cpp) ---------------------------------------
-# NNS_dep_matrix_cpp is not called by any R function and was removed from R as
-# dead code in a later patch; only emit these cases when the R build has it.
-# The random draws happen either way so the cases after this block keep their
-# inputs.
-Xd <- cbind(ret[1:300], ret[301:600], 0.5 * ret[1:300] + ret[301:600])
-Xi <- matrix(round(rnorm(900), 6), ncol = 3)
-if (exists("NNS_dep_matrix_cpp", envir = asNamespace("NNS"), inherits = FALSE)) {
-  dm <- NNS:::NNS_dep_matrix_cpp(Xd)
-  add_case("dep_matrix_ret", "dep_matrix", c(dm$Correlation, dm$Dependence), matrices = list(X = Xd))
-  dm <- NNS:::NNS_dep_matrix_cpp(Xi)
-  add_case("dep_matrix_indep", "dep_matrix", c(dm$Correlation, dm$Dependence), matrices = list(X = Xi))
+# ---- dependence (NNS.dep, NNS_dep_pair_cpp and its siblings) ----------------
+# Partition labels travel as their digits ("q" -> 0, "q1243" -> 1243); the
+# core reads every level of a partition from the label prefixes.
+qcode <- function(q) {
+  q <- as.character(q)
+  ifelse(nchar(q) > 1, as.numeric(substring(q, 2)), 0)
 }
-
-# ---- dependence (NNS_dep_pair_cpp, which NNS.dep calls) ---------------------
-# Quadrant labels go to R as strings and to the core as integer cell ids.
-dep_quads <- function(x, y) {
-  l <- length(x)
-  q <- NNS:::NNS_part_cpp(x, y, "XONLY", as.integer(max(ceiling(log(l, 2)), 1L)),
-                          as.integer(max(8L, as.integer(l / 8L))), FALSE, "off", TRUE)$quadrant
-  match(q, unique(q))
+qlab <- function(code) ifelse(code == 0, "q", paste0("q", sprintf("%.0f", code)))
+# The partitions NNS.dep's native path builds.
+dep_part <- function(a, b, type) {
+  l <- length(a)
+  qcode(NNS:::NNS_part_cpp(a, b, type, as.integer(max(ceiling(log(l, 2)), 1L)),
+                           as.integer(max(8L, as.integer(l / 8L))), FALSE, "off", TRUE)$quadrant)
 }
-add_dep_pair <- function(name, x, y, qa, qb, r_fix = NULL) {
+add_dep_pair <- function(name, x, y, qa, qb, qj) {
   for (asym in c(FALSE, TRUE)) {
-    d <- NNS:::NNS_dep_pair_cpp(as.numeric(x), as.numeric(y), as.character(qa), as.character(qb), asym)
+    d <- NNS:::NNS_dep_pair_cpp(as.numeric(x), as.numeric(y), qlab(qa), qlab(qb), qlab(qj), asym)
     add_case(sprintf("dep_pair_%s_a%d", name, asym), "dep_pair", c(d$Correlation, d$Dependence),
              scalars = list(asym = asym),
-             vectors = list(x = x, y = y, quad_xy = qa, quad_yx = qb), r_fix = r_fix)
+             vectors = list(x = x, y = y, quad_xy = qa, quad_yx = qb, quad_joint = qj))
   }
 }
-add_dep_pair("ret", ret[1:300], ret[301:600], dep_quads(ret[1:300], ret[301:600]),
-             dep_quads(ret[301:600], ret[1:300]))
-# Every point discordant: R 13.3 reported Correlation +1 (DEP-01).
-add_dep_pair("negative", ret[1:300], -ret[1:300], dep_quads(ret[1:300], -ret[1:300]),
-             dep_quads(-ret[1:300], ret[1:300]), r_fix = "DEP-01")
-# 49 * (1/49) != 1, so R 13.3 gave dep(b, b) = 0.51 (DEP-08).
+add_dep <- function(name, x, y) {
+  qa <- dep_part(x, y, "XONLY"); qb <- dep_part(y, x, "XONLY"); qj <- dep_part(x, y, NULL)
+  add_dep_pair(name, x, y, qa, qb, qj)
+  add_case(sprintf("dep_levels_%s", name), "dep_levels",
+           NNS:::NNS_dep_levels_cpp(as.numeric(x), as.numeric(y), qlab(qa)),
+           vectors = list(x = x, y = y, quad_xy = qa))
+  for (asym in c(FALSE, TRUE)) {
+    add_case(sprintf("dep_local_%s_a%d", name, asym), "dep_local",
+             NNS:::NNS_dep_local_cpp(as.numeric(x), as.numeric(y), qlab(qa), qlab(qb), asym),
+             scalars = list(asym = asym), vectors = list(x = x, y = y, quad_xy = qa, quad_yx = qb))
+    d <- NNS.dep(x, y, asym = asym)
+    add_case(sprintf("dep_%s_a%d", name, asym), "dep", c(d$Correlation, d$Dependence),
+             scalars = list(asym = asym), vectors = list(x = x, y = y))
+  }
+}
+Xd <- cbind(ret[1:300], ret[301:600], 0.5 * ret[1:300] + ret[301:600])
+Xi <- matrix(round(rnorm(900), 6), ncol = 3)
+# Inputs below come from their own stream, so the cases after this block keep theirs.
+saved_seed <- .Random.seed
+set.seed(2026)
+for (asym in c(FALSE, TRUE)) {
+  for (nm in c("ret", "indep")) {
+    X <- if (nm == "ret") Xd else Xi
+    dm <- NNS.dep(X, asym = asym)
+    add_case(sprintf("dep_matrix_%s_a%d", nm, asym), "dep_matrix",
+             c(dm$Correlation, dm$Dependence), scalars = list(asym = asym), matrices = list(X = X))
+  }
+}
+add_dep("ret", ret[1:300], ret[301:600])
+add_dep("negative", ret[1:300], -ret[1:300])
+dq <- round(rnorm(300), 6)
+add_dep("square", dq, round(dq^2 + rnorm(300, 0, .3), 6))
+add_dep("product", dq, round(dq * rnorm(300), 6))
+ang <- runif(300, 0, 2 * pi)
+add_dep("circle", round(cos(ang), 6), round(sin(ang), 6))
+dl <- round(rnorm(1000), 6)
+add_dep("linear_1000", dl, round(dl + rnorm(1000), 6))
+add_dep("small", c(3, 1, 4, 1, 5, 9, 2, 6, 5, 3), c(2, 7, 1, 8, 2, 8, 1, 8, 2, 8))
+dx <- as.numeric(sample(1:20, 300, TRUE))
+add_dep("discrete_binary", dx, as.numeric(rbinom(300, 1, plogis(dx - 10))))
+add_dep("discrete_ties", as.numeric(sample(-3:3, 300, TRUE)), as.numeric(sample(0:4, 300, TRUE)))
 bdep <- c(rep(0, 51), rep(1, 49))
-add_dep_pair("binary_self", bdep, bdep, bdep + 1, bdep + 1, r_fix = "DEP-08")
-# Points on the cell mean were counted as co-lower and discordant (CORE-09).
+add_dep("binary_self", bdep, bdep)
+add_dep("constant", ret[1:50], rep(1, 50))
+# One cell, points on the cell mean: the degree-0 counts partition it.
 xtie <- rep(c(-1, 0, 1), 33); ytie <- rep(c(0, 1, -1, 0, -1, 1, 1, 0, -1), 11)
-add_dep_pair("ties", xtie, ytie, rep(1, 99), rep(1, 99), r_fix = "CORE-09")
+add_dep_pair("ties", xtie, ytie, rep(0, 99), rep(0, 99), rep(0, 99))
+.Random.seed <- saved_seed
 
 # ---- distance (NNS_distance_path_cpp / bulk) --------------------------------
 RPM <- matrix(round(runif(120 * 3), 6), ncol = 3); yh <- round(rnorm(120), 6)
