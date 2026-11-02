@@ -9,8 +9,8 @@ element is compared. A case may carry its own `tol`, a scalar or one per
 element. Cases tagged `r_fix` cover an R bug that NNS-core fixes ahead of R;
 with --xfail-r-fixes a value mismatch on such a case is reported as XFAIL
 (expected against an R build without the fix) and does not fail the run, and a
-pass is reported as XPASS. An evaluator failure or unparsable output always
-fails.
+pass is reported as XPASS. An evaluator failure, or output that is empty or
+unparsable, always fails.
 
 Exit code 0 only if every case passes. The sync workflow uses this gate to
 decide whether a sync PR may be marked ready: no pass, no ready PR.
@@ -125,6 +125,8 @@ def main() -> int:
         tol = [float(t) for t in tol] if isinstance(tol, list) else float(tol)
         want = as_list(case["expected"])
         got, err = run_case(args.eval_bin, case)
+        if got == [] and want:
+            got, err = None, "no output"
         if got is None:
             ok, worst, note = False, float("nan"), err or "nns_eval failed"
         else:

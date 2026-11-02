@@ -1,6 +1,7 @@
 import importlib.util
 import json
 import math
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -82,6 +83,38 @@ class XfailGateTest(unittest.TestCase):
         self.assertIsNone(got)
         self.assertIn("unparsable", err)
         self.assertEqual(self.gate((got, err)), 1)
+
+
+class CliGateTest(unittest.TestCase):
+    """The gate run end to end, with a Python script standing in for nns_eval."""
+
+    def run_gate(self, evaluator):
+        with tempfile.TemporaryDirectory() as tmp:
+            script = Path(tmp) / "eval.py"
+            script.write_text(evaluator, encoding="utf-8")
+            # run_case calls [eval_bin, func, "--stdin"], so func is the script.
+            case = {"name": "c", "func": str(script), "expected": [1.0, 2.0], "r_fix": "X"}
+            truth = Path(tmp) / "truth.json"
+            truth.write_text(json.dumps({"cases": [case]}), encoding="utf-8")
+            proc = subprocess.run(
+                [sys.executable, str(_spec.origin), "--truth", str(truth),
+                 "--eval-bin", sys.executable, "--report", str(Path(tmp) / "report.md"),
+                 "--xfail-r-fixes"], capture_output=True, text=True)
+            return proc.returncode, proc.stdout
+
+    def test_value_mismatch_is_xfail(self):
+        code, out = self.run_gate("print('1,3')\n")
+        self.assertEqual(code, 0, out)
+        self.assertIn("XFAIL", out)
+
+    def test_empty_output_fails(self):
+        code, out = self.run_gate("")
+        self.assertEqual(code, 1, out)
+        self.assertIn("no output", out)
+
+    def test_nonzero_exit_fails(self):
+        code, out = self.run_gate("raise SystemExit(3)\n")
+        self.assertEqual(code, 1, out)
 
 
 if __name__ == "__main__":
