@@ -3,12 +3,13 @@
 // generate_vectors / generate_lin_vectors: in-range results equal the
 // NNS 13.3 values, and out-of-range lags no longer read out of bounds,
 // underflow size_t or divide by zero. arma_seas_weighting falls back to
-// equal weights.
+// equal weights. force_clt spreads replicate means by sqrt(n).
 //
 // SPDX-License-Identifier: GPL-3.0-only
 #include "nns/internal_functions.hpp"
 
 #include <cmath>
+#include <string>
 #include <vector>
 
 #include "check.hpp"
@@ -75,6 +76,32 @@ int main() {
   const nns::ARMAWeights eq = nns::arma_seas_weighting(per, vcv, vcv, 3);
   check(eq.lags == std::vector<double>({7, 14, 21}), "zero-sum lags");
   check(eq.weights == std::vector<double>(3, 1.0 / 3.0), "zero-sum weights are equal");
+
+  // force.clt: replicate means spread as sd(x) / sqrt(n), not / sqrt(reps).
+  // R: NNS:::force.clt(x, cbind(x, x + 1, x - 2, rev(x))).
+  const std::vector<double> xs = {3, 1, 4, 1, 5, 9, 2, 6};
+  const double sdx = nns::vec_sd(xs.data(), xs.size());
+  for (std::size_t reps : {4u, 9u, 40u}) {
+    std::vector<double> ens;
+    for (std::size_t j = 0; j < reps; ++j)
+      for (double v : xs) ens.push_back(v + 0.25 * static_cast<double>(j % 5) - (j == 3 ? 2.5 : 0.0));
+    nns::force_clt(ens.data(), xs.size(), reps, 3.875, &sdx, 1);
+    std::vector<double> means(reps, 0.0);
+    for (std::size_t j = 0; j < reps; ++j) {
+      for (std::size_t i = 0; i < xs.size(); ++i) means[j] += ens[j * xs.size() + i];
+      means[j] /= static_cast<double>(xs.size());
+    }
+    nns_test::check_close("force_clt mean spread, reps " + std::to_string(reps),
+                          nns::vec_sd(means.data(), reps), sdx / std::sqrt(8.0), 1e-12);
+  }
+  std::vector<double> ens;
+  for (double d : {0.0, 1.0, -2.0}) for (double v : xs) ens.push_back(v + d);
+  ens.insert(ens.end(), xs.rbegin(), xs.rend());
+  nns::force_clt(ens.data(), xs.size(), 4, 3.875, &sdx, 1);
+  const double want[4] = {2.6569634488864384, 4.1395703433563273, 1.8604296566436735,
+                          6.3430365511135616};
+  for (int j = 0; j < 4; ++j)
+    nns_test::check_close("force_clt R value, column " + std::to_string(j), ens[8 * j], want[j], 1e-8);
 
   return nns_test::check_summary("test_internal_functions");
 }
