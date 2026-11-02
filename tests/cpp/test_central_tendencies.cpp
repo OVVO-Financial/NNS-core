@@ -49,7 +49,9 @@ void tiny_histogram_cases() {
   const std::vector<double> a = {0, 0, 1, 1};
   const std::vector<double> ma = nns::mode(a.data(), a.size(), false, true);
   check(ma == std::vector<double>({0, 1}), "mode multi {0,0,1,1}");
-  check_close("mode {0,0,1,1}", mode1(a, false), 0.5, 0.0);
+  // Two equally high bins: the one nearer the gravity (0.375).
+  check_close("mode {0,0,1,1}", mode1(a, false), 0.0, 0.0);
+  check_close("mode {-1,-1,1,1}", mode1({-1, -1, 1, 1}, false), -1.0, 0.0);
   check_close("mode {0,1,1,2}", mode1({0, 1, 1, 2}, false), 1.0, 0.0);
   check_close("mode {1,2,2,5}", mode1({1, 2, 2, 5}, false), 2.0, 0.0);
   check_close("mode {1,1,1,2,9}", mode1({1, 1, 1, 2, 9}, false), 1.0, 0.0);
@@ -144,16 +146,13 @@ void pathological_bin_counts() {
 }  // namespace
 
 // Twenty equally frequent values give equally high smoothed peaks; the single
-// mode averages them (R 13.3 picked 9.9505024998740641 by sort order).
+// mode is the one nearest the gravity (9.2354492587482149), not their average.
 void equal_peak_cases() {
   std::vector<double> x;
   for (int v = 0; v < 20; ++v) x.insert(x.end(), 400, static_cast<double>(v));
   const std::vector<double> all = nns::mode(x.data(), x.size(), false, true);
-  long double sum = 0.0L;
-  for (double v : all) sum += v;
-  check_close("equal peaks, mean of the multi modes", mode1(x, false),
-              static_cast<double>(sum / all.size()), 0.0);
-  check_close("equal peaks, R with the tie patch", mode1(x, false), 9.4411759049991115, 1e-14);
+  check(all.size() == 18 && all[8] == mode1(x, false), "equal peaks, the single mode is a peak");
+  check_close("equal peaks, R value", mode1(x, false), 8.9442719099991592, 1e-14);
 }
 
 int main() {

@@ -439,14 +439,17 @@ std::vector<double> mode(const double* x_in, std::size_t n, bool discrete, bool 
         std::sort(out.begin(), out.end());
         return out;
       } else {
-        // Equally high peaks are averaged, as the tied-bin fallback below does.
+        // Tied peaks: nearest the gravity, then the lower value; an average can fall in a gap.
         double best_h = cs[kept[0]];
         for (std::size_t t = 1; t < kept.size(); ++t) best_h = std::max(best_h, cs[kept[t]]);
-        long double sum = 0.0L;
-        int nt = 0;
-        for (std::size_t t = 0; t < kept.size(); ++t)
-          if (cs[kept[t]] == best_h) { sum += static_cast<long double>(centers[t]); ++nt; }
-        return {static_cast<double>(sum / nt)};
+        const double g = gravity(xnum.data(), xnum.size(), false);
+        double best_c = kNaN, best_d = std::numeric_limits<double>::infinity();
+        for (std::size_t t = 0; t < kept.size(); ++t) {
+          if (cs[kept[t]] != best_h) continue;
+          const double dist = std::fabs(centers[t] - g);
+          if (dist < best_d || (dist == best_d && centers[t] < best_c)) { best_d = dist; best_c = centers[t]; }
+        }
+        return {best_c};
       }
     }
   }
@@ -462,13 +465,15 @@ std::vector<double> mode(const double* x_in, std::size_t n, bool discrete, bool 
       std::sort(out.begin(), out.end());
       return out;
     } else {
-      long double sum = 0.0L;
-      int pos = 0;
+      // Tied highest bins: nearest the gravity, then the lower value.
+      const double g = gravity(xnum.data(), xnum.size(), false);
+      double best_c = kNaN, best_d = std::numeric_limits<double>::infinity();
       for (int i = 0; i < lz; ++i) {
-        if (counts[i] == maxc) { sum += static_cast<long double>(z_names[i]); ++pos; }
+        if (counts[i] != maxc) continue;
+        const double dist = std::fabs(z_names[i] - g);
+        if (dist < best_d || (dist == best_d && z_names[i] < best_c)) { best_d = dist; best_c = z_names[i]; }
       }
-      double mean_modes = (pos > 0) ? static_cast<double>(sum / static_cast<long double>(pos)) : kNaN;
-      return {mean_modes};
+      return {best_c};
     }
   }
   
