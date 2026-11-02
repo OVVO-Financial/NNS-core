@@ -2,7 +2,7 @@
 //
 // dep_pair on single-cell inputs where the copula's degree-0 counts decide
 // the result. Expected values: NNS:::NNS_dep_pair_cpp from R 13.3 with the
-// DEP-01, DEP-08 and CORE-09 patches.
+// sign, binary-cell and tie patches.
 //
 // SPDX-License-Identifier: GPL-3.0-only
 #include "nns/dependence.hpp"
@@ -32,7 +32,7 @@ void check_dep(const std::string& name, const std::vector<double>& x,
 }  // namespace
 
 int main() {
-  // Every point discordant (DEP-01): R 13.3 returned Correlation +1.
+  // Every point discordant: R 13.3 returned Correlation +1.
   std::vector<double> x(100), neg(100);
   for (int i = 0; i < 100; ++i) {
     x[i] = i + 1;
@@ -40,7 +40,7 @@ int main() {
   }
   check_dep("x vs -x", x, neg, std::vector<uint64_t>(100, 1), -1.0, 1.0);
 
-  // Binary self-dependence in cells of 51 and 49 points (DEP-08): 49 * (1/49)
+  // Binary self-dependence in cells of 51 and 49 points: 49 * (1/49)
   // is not 1, so R 13.3 returned 0.51 / 0.755.
   std::vector<double> b(100, 0.0);
   std::vector<uint64_t> bcells(100, 1);
@@ -50,7 +50,7 @@ int main() {
   }
   check_dep("binary self", b, b, bcells, 1.0, 1.0);
 
-  // Points on the cell mean (CORE-09): R 13.3 counted them as co-lower and
+  // Points on the cell mean: R 13.3 counted them as co-lower and
   // discordant, giving -0.68718427093627676 / 0.67692546880147175.
   const double pattern[9] = {0, 1, -1, 0, -1, 1, 1, 0, -1};
   std::vector<double> tx(99), ty(99);
