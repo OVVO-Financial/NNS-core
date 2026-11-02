@@ -33,7 +33,7 @@ void fill_projection(const double* design, std::size_t rows, std::size_t p,
           }
         }
       },
-      n_threads);
+      n_threads, p);
 }
 
 }  // namespace

@@ -517,7 +517,7 @@ std::vector<double> mreg_predict(const double* rpm_x, std::size_t n, std::size_t
   std::vector<double> out(m);
   PredictKernel kernel(rpm_x, n, p, yhat, Xtest, m, k, dist_code, mins, maxs, is_class, rank,
                        out.data(), /*only_k=*/k);
-  parallel_for(0, m, kernel, n_threads);
+  parallel_for(0, m, kernel, n_threads, n * p + static_cast<std::size_t>(k) * 16U);
   return out;
 }
 
@@ -531,7 +531,8 @@ std::vector<double> mreg_predict_path(const double* rpm_x, std::size_t n, std::s
   std::vector<double> out(m * static_cast<std::size_t>(kmax));
   PredictKernel kernel(rpm_x, n, p, yhat, Xtest, m, kmax, dist_code, mins, maxs, is_class,
                        rank, out.data(), /*only_k=*/0);
-  parallel_for(0, m, kernel, n_threads);
+  parallel_for(0, m, kernel, n_threads,
+               n * p + static_cast<std::size_t>(kmax) * static_cast<std::size_t>(kmax) * 8U);
   return out;
 }
 

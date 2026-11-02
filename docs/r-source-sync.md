@@ -126,7 +126,10 @@ It never edits C++ logic. For each changed R `src` file the adapter:
   signature means a real port is required, not a provenance bump
 * rewrites the provenance block **only** for `auto: true` mappings, which are
   limited to files whose numerical behavior is covered by the live Rcpp fidelity
-  suite
+  suite, and only when the incoming file differs from its `original_src/`
+  snapshot in comments or whitespace alone (it then refreshes the snapshot).
+  Any code change, even in an `auto: true` file, is routed to manual review: a
+  provenance bump must never stand in for a port of changed logic
 * writes `sync/last_sync_report.md` explaining exactly what changed
 
 For `auto: false` mappings and for **unmapped** changed R `src` files, the
@@ -148,10 +151,27 @@ A sync PR is opened as a **draft** unless every changed `src/**` file was cleanl
 auto-handled by the adapter **and** the live Rcpp fidelity suite passed. No sync
 is marked ready on fidelity failure or when fidelity could not be run.
 
+When the dispatch payload carries no `changed_files` (manual runs), the
+workflow diffs the R checkout against the manifest `r_commit`, or treats every
+`src/` file as changed when that commit is not in the R history, so a manual
+run can no longer report "Manual review: none" for a changed tree. Event
+payload fields reach shell steps only through `env:` and are validated
+(git sha, version and hash patterns) before use.
+
 ## Downstream notification
 
-After a core sync merges to `main`, this repository dispatches
-`nns-core-updated` to `OVVO-Financial/NNS-python`.
+After a core change merges to `main` (any push whose `before..after` range
+touches `src/`, `include/`, `CMakeLists.txt` or `sync/nns_r_source.json`), this
+repository dispatches `nns-core-updated` to `OVVO-Financial/NNS-python`.
+
+Receiver contract: NNS-python must provide
+`.github/workflows/sync-from-nns-core.yml` with
+`on: repository_dispatch: types: [nns-core-updated]`, reading
+`client_payload.{core_commit, r_repo, r_commit, r_version, r_src_tree_hash}`,
+and must list that file in its `workflow-baseline.yml` protected set (otherwise
+the baseline guard deletes it from PRs). `notify-python.yml` checks that the
+receiver exists before dispatching; when it does not, the job emits a warning
+and a step summary instead of dispatching an event nobody handles.
 
 The Python repository then updates its vendored `extern/NNS-core`, builds the
 native backend, and runs parity gates.
