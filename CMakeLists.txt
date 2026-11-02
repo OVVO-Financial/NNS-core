@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.18)
 
 # Project name and version lockstep with NNS releases
-project(nnscore VERSION 13.0.0 LANGUAGES CXX)
+project(nnscore VERSION 13.3.0 LANGUAGES CXX)
 
 # Enforce C++17 Standard (Required for std::optional and modern standard library features)
 set(CMAKE_CXX_STANDARD 17)
@@ -19,6 +19,9 @@ add_library(nnscore
     src/seasonality.cpp
     src/fast_lm.cpp
     src/internal_functions.cpp
+    src/mreg_setup.cpp
+    src/mreg_predict.cpp
+    src/stack_fast.cpp
 )
 
 # Set the public include directories so consumers can `#include "nns/nns.hpp"`

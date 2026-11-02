@@ -10,6 +10,12 @@
 # Usage:
 #   Rscript generate_truth.R <out.json> [r_commit] [r_version]
 #
+# Every case records the R call that produced `expected` (a scalar or a
+# vector; matrices are flattened column-major). Cases tagged with "r_fix" cover
+# an R bug that NNS-core fixes ahead of R: they are expected to fail against an
+# R build without that fix (run_fidelity.py --xfail-r-fixes reports them as
+# XFAIL/XPASS instead of failing).
+#
 # Dependency-free JSON emission (no jsonlite required).
 
 args <- commandArgs(trailingOnly = TRUE)
@@ -21,18 +27,38 @@ suppressMessages(library(NNS))
 
 TOL <- 1e-9
 
-num <- function(v) sprintf("%.17g", as.numeric(v))
+num <- function(v) {
+  v <- as.numeric(v)
+  s <- sprintf("%.17g", v)
+  s[is.nan(v) | is.na(v)] <- "NaN"
+  s[!is.na(v) & v == Inf] <- "Infinity"
+  s[!is.na(v) & v == -Inf] <- "-Infinity"
+  s
+}
 arr <- function(v) paste0("[", paste(num(v), collapse = ","), "]")
+str_json <- function(s) sprintf('"%s"', gsub('"', '\\\\"', s))
 
 cases <- list()
-add_case <- function(name, func, expected, scalars = list(), vectors = list()) {
+# scalars: named numbers/logicals (logical -> 0/1); vectors: named numeric
+# vectors; matrices: named matrices (emitted column-major plus <name>_nrow);
+# strings: named character scalars. `expected` may be a scalar or a vector.
+add_case <- function(name, func, expected, scalars = list(), vectors = list(),
+                     matrices = list(), strings = list(), tol = NULL, r_fix = NULL) {
   parts <- c(
     sprintf('"name":"%s"', name),
     sprintf('"func":"%s"', func),
-    sprintf('"expected":%s', num(expected))
+    sprintf('"expected":%s', arr(expected))
   )
-  for (k in names(scalars)) parts <- c(parts, sprintf('"%s":%s', k, num(scalars[[k]])))
+  if (!is.null(tol)) parts <- c(parts, sprintf('"tol":%s', if (length(tol) > 1) arr(tol) else num(tol)))
+  if (!is.null(r_fix)) parts <- c(parts, sprintf('"r_fix":%s', str_json(r_fix)))
+  for (k in names(scalars)) parts <- c(parts, sprintf('"%s":%s', k, num(as.numeric(scalars[[k]]))))
   for (k in names(vectors)) parts <- c(parts, sprintf('"%s":%s', k, arr(vectors[[k]])))
+  for (k in names(matrices)) {
+    m <- as.matrix(matrices[[k]])
+    parts <- c(parts, sprintf('"%s":%s', k, arr(as.numeric(m))),
+               sprintf('"%s_nrow":%d', k, nrow(m)))
+  }
+  for (k in names(strings)) parts <- c(parts, sprintf('"%s":%s', k, str_json(strings[[k]])))
   cases[[length(cases) + 1]] <<- paste0("    {", paste(parts, collapse = ","), "}")
 }
 
@@ -42,8 +68,11 @@ x1 <- c(1, 2, 3, 4, 5)
 x2 <- c(-2.5, 0.0, 1.25, 3.75, 8.0, 8.0, 11.0)
 xr <- round(rnorm(40), 6)
 yr <- round(rnorm(40), 6)
+ret <- round(rt(600, df = 4) * 0.01, 8)                      # heavy-tailed returns
+price <- round(400 * cumprod(1 + rnorm(1500, 4e-4, 0.012)), 4) # price levels (offset)
+disc <- as.numeric(sample(-3:3, 300, TRUE))                   # discrete with ties
 
-# ---- univariate LPM / UPM --------------------------------------------------
+# ---- univariate LPM / UPM (scalar direct path) -----------------------------
 for (deg in c(0, 1, 2)) {
   for (tgt in c(3, mean(x1))) {
     add_case(sprintf("lpm_d%g_t%g", deg, tgt), "lpm",
@@ -61,6 +90,46 @@ for (deg in c(1, 2)) {
            scalars = list(degree = deg, target = mean(x2)), vectors = list(x = x2))
   add_case(sprintf("upm_x2_d%g", deg), "upm", UPM(deg, mean(x2), x2),
            scalars = list(degree = deg, target = mean(x2)), vectors = list(x = x2))
+}
+for (deg in c(0.5, 1.5, 3)) {
+  add_case(sprintf("lpm_ret_d%g", deg), "lpm", LPM(deg, 0.001, ret),
+           scalars = list(degree = deg, target = 0.001), vectors = list(x = ret))
+  add_case(sprintf("upm_ret_d%g", deg), "upm", UPM(deg, 0.001, ret),
+           scalars = list(degree = deg, target = 0.001), vectors = list(x = ret))
+}
+
+# ---- vectorised LPM / UPM (> 32 targets: prefix backend) -------------------
+# Targets: a grid across (and beyond) the support plus order statistics.
+grid_targets <- function(v) c(seq(min(v) - 0.1 * diff(range(v)), max(v) + 0.1 * diff(range(v)),
+                                  length.out = 60), sort(v)[seq(1, length(v), by = 15)])
+for (data_name in c("ret", "price", "disc")) {
+  v <- get(data_name)
+  tv <- grid_targets(v)
+  for (deg in c(0, 1, 2, 3, 4, 8, 12, 0.5, 2.5)) {
+    # Degrees >= 3 on these data hit the NNS 13.0-13.3 binomial-expansion
+    # cancellation (CORE-01); fractional degrees use the direct path.
+    fix <- if (deg >= 3 && deg == round(deg)) "CORE-01" else NULL
+    # Degrees 1-2 agree to rounding with the old backend except in far tails.
+    tol <- if (deg %in% c(1, 2)) 1e-7 else NULL
+    add_case(sprintf("lpm_v_%s_d%g", data_name, deg), "lpm_v", LPM(deg, tv, v),
+             scalars = list(degree = deg), vectors = list(target = tv, x = v), tol = tol, r_fix = fix)
+    add_case(sprintf("upm_v_%s_d%g", data_name, deg), "upm_v", UPM(deg, tv, v),
+             scalars = list(degree = deg), vectors = list(target = tv, x = v), tol = tol, r_fix = fix)
+  }
+  for (deg in c(0, 1, 2, 4)) {
+    fix <- if (deg >= 3) "CORE-01" else NULL
+    tol <- if (deg %in% c(1, 2)) 1e-7 else NULL
+    add_case(sprintf("lpm_ratio_v_%s_d%g", data_name, deg), "lpm_ratio_v", LPM.ratio(deg, tv, v),
+             scalars = list(degree = deg), vectors = list(target = tv, x = v), tol = tol, r_fix = fix)
+    add_case(sprintf("upm_ratio_v_%s_d%g", data_name, deg), "upm_ratio_v", UPM.ratio(deg, tv, v),
+             scalars = list(degree = deg), vectors = list(target = tv, x = v), tol = tol, r_fix = fix)
+  }
+  # <= 32 targets stay on the direct path at every degree.
+  t20 <- tv[seq(1, length(tv), length.out = 20)]
+  for (deg in c(3, 8)) {
+    add_case(sprintf("upm_v20_%s_d%g", data_name, deg), "upm_v", UPM(deg, t20, v),
+             scalars = list(degree = deg), vectors = list(target = t20, x = v))
+  }
 }
 
 # ---- bivariate Co / D partial moments -------------------------------------
@@ -82,6 +151,239 @@ for (dl in c(0, 1)) {
              scalars = list(degree_lpm = dl, degree_upm = du, target_x = tx, target_y = ty),
              vectors = list(x = xr, y = yr))
   }
+}
+# unequal, fractional and higher degrees; ties
+xd <- disc[1:120]; yd <- disc[121:240]
+for (dg in list(c(2, 0.5), c(0, 3), c(1.5, 1.5), c(3, 2))) {
+  add_case(sprintf("co_lpm_%g_%g", dg[1], dg[2]), "co_lpm", Co.LPM(dg[1], xr, yr, tx, ty, dg[2]),
+           scalars = list(degree = dg[1], degree_y = dg[2], target_x = tx, target_y = ty),
+           vectors = list(x = xr, y = yr))
+  add_case(sprintf("co_upm_ties_%g_%g", dg[1], dg[2]), "co_upm", Co.UPM(dg[1], xd, yd, 0, 0, dg[2]),
+           scalars = list(degree = dg[1], degree_y = dg[2], target_x = 0, target_y = 0),
+           vectors = list(x = xd, y = yd))
+  add_case(sprintf("d_lpm_%g_%g", dg[1], dg[2]), "d_lpm", D.LPM(dg[1], dg[2], xd, yd, 0, 0),
+           scalars = list(degree_lpm = dg[1], degree_upm = dg[2], target_x = 0, target_y = 0),
+           vectors = list(x = xd, y = yd))
+  add_case(sprintf("d_upm_%g_%g", dg[1], dg[2]), "d_upm", D.UPM(dg[1], dg[2], xr, yr, tx, ty),
+           scalars = list(degree_lpm = dg[1], degree_upm = dg[2], target_x = tx, target_y = ty),
+           vectors = list(x = xr, y = yr))
+}
+# vectorised bivariate (target recycling: 40 x targets, 1 y target)
+txv <- sort(xr); tyv <- ty
+for (dg in list(c(0, 0), c(1, 2), c(0.5, 1))) {
+  add_case(sprintf("co_lpm_v_%g_%g", dg[1], dg[2]), "co_lpm_v",
+           Co.LPM(dg[1], xr, yr, txv, tyv, dg[2]),
+           scalars = list(degree_1 = dg[1], degree_2 = dg[2]),
+           vectors = list(x = xr, y = yr, target_x = txv, target_y = tyv))
+  add_case(sprintf("co_upm_v_%g_%g", dg[1], dg[2]), "co_upm_v",
+           Co.UPM(dg[1], xr, yr, txv, tyv, dg[2]),
+           scalars = list(degree_1 = dg[1], degree_2 = dg[2]),
+           vectors = list(x = xr, y = yr, target_x = txv, target_y = tyv))
+  add_case(sprintf("d_lpm_v_%g_%g", dg[1], dg[2]), "d_lpm_v",
+           D.LPM(dg[1], dg[2], xr, yr, txv, tyv),
+           scalars = list(degree_1 = dg[1], degree_2 = dg[2]),
+           vectors = list(x = xr, y = yr, target_x = txv, target_y = tyv))
+  add_case(sprintf("d_upm_v_%g_%g", dg[1], dg[2]), "d_upm_v",
+           D.UPM(dg[1], dg[2], xr, yr, txv, tyv),
+           scalars = list(degree_1 = dg[1], degree_2 = dg[2]),
+           vectors = list(x = xr, y = yr, target_x = txv, target_y = tyv))
+}
+
+# ---- n-dimensional co-partial moments, batch, PM.matrix --------------------
+X3 <- cbind(ret[1:200], ret[201:400], ret[401:600])
+X3t <- cbind(disc[1:100], disc[101:200], disc[201:300])
+for (nm in c("X3", "X3t")) {
+  X <- get(nm); tgt <- colMeans(X)
+  for (deg in c(0, 0.5, 1, 2)) {
+    for (nrm in c(TRUE, FALSE)) {
+      sc <- list(degree = deg, norm = nrm)
+      add_case(sprintf("clpm_nd_%s_d%g_n%d", nm, deg, nrm), "clpm_nd", Co.LPM_nD(X, tgt, deg, nrm),
+               scalars = sc, vectors = list(target = tgt), matrices = list(data = X))
+      add_case(sprintf("cupm_nd_%s_d%g_n%d", nm, deg, nrm), "cupm_nd", Co.UPM_nD(X, tgt, deg, nrm),
+               scalars = sc, vectors = list(target = tgt), matrices = list(data = X))
+      add_case(sprintf("dpm_nd_%s_d%g_n%d", nm, deg, nrm), "dpm_nd", DPM_nD(X, tgt, deg, nrm),
+               scalars = sc, vectors = list(target = tgt), matrices = list(data = X))
+    }
+  }
+  targets <- X[seq(1, nrow(X), by = 7), , drop = FALSE]
+  for (deg in c(0, 1)) {
+    add_case(sprintf("clpm_nd_batch_%s_d%g", nm, deg), "clpm_nd_batch",
+             NNS:::Co.LPM_nD.batch(X, targets, deg, TRUE),
+             scalars = list(degree = deg, norm = TRUE), matrices = list(data = X, targets = targets))
+  }
+  for (cfg in list(c(1, 1, 1, 0), c(0, 0, 0, 0), c(2, 1, 1, 1), c(0.5, 1.5, 0, 1))) {
+    pm <- PM.matrix(cfg[1], cfg[2], tgt, X, pop_adj = as.logical(cfg[3]), norm = as.logical(cfg[4]))
+    add_case(sprintf("pm_matrix_%s_%g_%g_%g_%g", nm, cfg[1], cfg[2], cfg[3], cfg[4]), "pm_matrix",
+             c(pm$cupm, pm$dupm, pm$dlpm, pm$clpm, pm$cov.matrix),
+             scalars = list(degree_lpm = cfg[1], degree_upm = cfg[2], pop_adj = cfg[3], norm = cfg[4]),
+             vectors = list(target = tgt), matrices = list(variable = X))
+  }
+}
+
+# ---- gravity / mode --------------------------------------------------------
+cvec <- list(
+  normal = round(rnorm(500), 6), ret = ret, disc = disc, small4 = c(0, 0, 1, 1),
+  small5 = c(1, 1, 1, 2, 9), bimodal = round(c(rnorm(300, -2), rnorm(300, 2)), 5),
+  cauchy = round(rcauchy(400), 5), tight = c(5 + 1e-5 * round(rnorm(300), 6), 6, -30)
+)
+for (nm in names(cvec)) {
+  v <- cvec[[nm]]
+  for (dsc in c(FALSE, TRUE)) {
+    add_case(sprintf("gravity_%s_d%d", nm, dsc), "gravity", NNS.gravity(v, discrete = dsc),
+             scalars = list(discrete = dsc), vectors = list(x = v))
+    for (mlt in c(FALSE, TRUE)) {
+      add_case(sprintf("mode_%s_d%d_m%d", nm, dsc, mlt), "mode", NNS.mode(v, discrete = dsc, multi = mlt),
+               scalars = list(discrete = dsc, multi = mlt), vectors = list(x = v))
+    }
+  }
+}
+big <- c(3e9, 3e9, 3e9, 1, 2)
+add_case("mode_discrete_3e9", "mode", NNS.mode(big, discrete = TRUE, multi = FALSE),
+         scalars = list(discrete = TRUE, multi = FALSE), vectors = list(x = big), r_fix = "CORE-07")
+
+# ---- partition (NNS_part_cpp) ----------------------------------------------
+px <- ret[1:300]; py <- ret[301:600]
+for (noise in c("off", "mean", "median", "mode")) {
+  for (xo in c(FALSE, TRUE)) {
+    p <- NNS:::NNS_part_cpp(px, py, if (xo) "XONLY" else NULL, NULL, 8L, FALSE, noise)
+    q <- as.character(p$dt$quadrant)
+    qc <- ifelse(nchar(q) > 1, as.numeric(substring(q, 2)), 0)
+    add_case(sprintf("partition_%s_x%d", noise, xo), "partition",
+             c(p$order, qc, p$regression.points$x, p$regression.points$y),
+             scalars = list(xonly = xo, obs_req = 8), vectors = list(x = px, y = py),
+             strings = list(noise_reduction = noise))
+  }
+}
+ix <- c(1:20, Inf, -Inf); iy <- c(20:1, 5, 7)
+p <- NNS:::NNS_part_cpp(ix, iy, NULL, 2L, 8L, FALSE, "off")
+q <- as.character(p$dt$quadrant)
+add_case("partition_inf", "partition",
+         c(p$order, ifelse(nchar(q) > 1, as.numeric(substring(q, 2)), 0),
+           p$regression.points$x, p$regression.points$y),
+         scalars = list(order = 2, obs_req = 8), vectors = list(x = ix, y = iy),
+         strings = list(noise_reduction = "off"))
+
+# ---- dependence (NNS_dep_matrix_cpp) ---------------------------------------
+Xd <- cbind(ret[1:300], ret[301:600], 0.5 * ret[1:300] + ret[301:600])
+dm <- NNS:::NNS_dep_matrix_cpp(Xd)
+add_case("dep_matrix_ret", "dep_matrix", c(dm$Correlation, dm$Dependence), matrices = list(X = Xd))
+Xi <- matrix(round(rnorm(900), 6), ncol = 3)
+dm <- NNS:::NNS_dep_matrix_cpp(Xi)
+add_case("dep_matrix_indep", "dep_matrix", c(dm$Correlation, dm$Dependence), matrices = list(X = Xi))
+
+# ---- distance (NNS_distance_path_cpp / bulk) --------------------------------
+RPM <- matrix(round(runif(120 * 3), 6), ncol = 3); yh <- round(rnorm(120), 6)
+Xt <- matrix(round(runif(15 * 3), 6), ncol = 3)
+add_case("distance_path", "distance_path", NNS:::NNS_distance_path_cpp(RPM, yh, Xt, 8L, FALSE),
+         scalars = list(k = 8, is_class = FALSE), vectors = list(yhat = yh),
+         matrices = list(RPM = RPM, Xtest = Xt))
+add_case("distance_bulk", "distance_bulk", NNS:::NNS_distance_bulk_cpp(RPM, yh, Xt, 5L, FALSE),
+         scalars = list(k = 5, is_class = FALSE), vectors = list(yhat = yh),
+         matrices = list(RPM = RPM, Xtest = Xt))
+
+# ---- fast_lm -------------------------------------------------------------------
+i500 <- 1:500
+fx <- 1e9 + i500 * 1e-3; fy <- ((i500 * 7919) %% 1000) / 1000
+z <- NNS:::fast_lm(fx, fy)
+# A fitted value cancels terms of size |b0| + |b1 x|, so its rounding (FMA or not) scales with that.
+fit_tol <- 4 * .Machine$double.eps * (abs(z$coef[1]) + abs(z$coef[2] * fx))
+add_case("fast_lm_offset", "fast_lm", c(z$coef, z$fitted.values), vectors = list(x = fx, y = fy),
+         tol = c(1e-12, 1e-12, fit_tol))
+z <- NNS:::fast_lm(xr, yr)
+add_case("fast_lm_small", "fast_lm", c(z$coef, z$fitted.values), vectors = list(x = xr, y = yr))
+
+# ---- M.reg / stack kernels (R 13.1-13.3) -----------------------------------
+Xm <- cbind(a = round(runif(400), 3), b = round(rnorm(400), 3), c = round(rnorm(400), 2))
+Xm <- cbind(Xm, a2 = Xm[, "a"])                     # duplicated column
+ym <- round(2 * Xm[, 1] - Xm[, 2] + rnorm(400, 0, 0.3), 6)
+add_case("duplicate_column_map", "duplicate_column_map",
+         NNS:::NNS_duplicate_column_map_cpp(Xm), matrices = list(X = Xm))
+bounds <- lapply(seq_len(ncol(Xm)), function(j) unique(quantile(Xm[, j], seq(0, 1, 0.125), names = FALSE)))
+bvec <- unlist(bounds); blen <- vapply(bounds, length, 1)
+for (red in 0:3) {
+  for (cls in c(FALSE, TRUE)) {
+    yy <- if (cls) round(ym) else ym
+    s <- NNS:::NNS_mreg_setup_cpp(Xm, yy, bounds, red, cls)
+    add_case(sprintf("mreg_setup_r%d_c%d", red, cls), "mreg_setup", s$RPM,
+             scalars = list(reducer = red, is_class = cls),
+             vectors = list(y = yy, boundaries = bvec, boundary_lengths = blen),
+             matrices = list(X = Xm))
+  }
+}
+s <- NNS:::NNS_mreg_setup_cpp(Xm[, 1:3], ym, bounds[1:3], 3L, FALSE)
+rx <- s$RPM[, 1:3]; ry <- s$RPM[, 4]
+mins <- apply(Xm[, 1:3], 2, min); maxs <- apply(Xm[, 1:3], 2, max)
+Xq <- cbind(round(runif(40), 3), round(rnorm(40), 3), round(rnorm(40), 2))
+Xq[1:5, ] <- rx[1:5, ]                               # exact hits (distance 0 ties)
+for (dc in 0:3) {
+  for (k in c(1, 3, 7)) {
+    for (cls in c(FALSE, TRUE)) {
+      yv <- if (cls) round(ry) else ry
+      Xuse <- if (dc == 3) round(Xq) else Xq
+      Ruse <- if (dc == 3) round(rx) else rx
+      add_case(sprintf("mreg_predict_d%d_k%d_c%d", dc, k, cls), "mreg_predict",
+               NNS:::NNS_mreg_predict_v2_cpp(Ruse, yv, Xuse, as.integer(k), dc, mins, maxs, cls, 1L),
+               scalars = list(k = k, dist_code = dc, is_class = cls),
+               vectors = list(yhat = yv, mins = mins, maxs = maxs),
+               matrices = list(rpm_x = Ruse, Xtest = Xuse))
+    }
+  }
+  add_case(sprintf("mreg_predict_path_d%d", dc), "mreg_predict_path",
+           NNS:::NNS_mreg_predict_path_v2_cpp(rx, ry, Xq, 12L, dc, mins, maxs, FALSE, 1L),
+           scalars = list(k = 12, dist_code = dc, is_class = FALSE),
+           vectors = list(yhat = ry, mins = mins, maxs = maxs),
+           matrices = list(rpm_x = rx, Xtest = Xq))
+}
+# 1-D fast path: duplicated coordinate (cbind(X*, X*)), with unequal ranges.
+x1d <- sort(round(runif(150), 4)); r1d <- cbind(x1d, x1d); y1d <- round(sin(6 * x1d), 6)
+q1d <- cbind(round(runif(30), 4)); q1d <- cbind(q1d, q1d)
+for (dc in 0:2) {
+  add_case(sprintf("mreg_predict_path_1d_d%d", dc), "mreg_predict_path",
+           NNS:::NNS_mreg_predict_path_v2_cpp(r1d, y1d, q1d, 9L, dc, c(0, 0), c(1, 2), FALSE, 1L),
+           scalars = list(k = 9, dist_code = dc, is_class = FALSE),
+           vectors = list(yhat = y1d, mins = c(0, 0), maxs = c(1, 2)),
+           matrices = list(rpm_x = r1d, Xtest = q1d))
+  add_case(sprintf("mreg_predict_1d_d%d_k4", dc), "mreg_predict",
+           NNS:::NNS_mreg_predict_v2_cpp(r1d, y1d, q1d, 4L, dc, c(0, 0), c(1, 2), FALSE, 1L),
+           scalars = list(k = 4, dist_code = dc, is_class = FALSE),
+           vectors = list(yhat = y1d, mins = c(0, 0), maxs = c(1, 2)),
+           matrices = list(rpm_x = r1d, Xtest = q1d))
+}
+# Range scaling makes (.07, .07) equidistant from .01 and .13; the raw differences are not.
+xt1 <- cbind(c(.01, .13, 1), c(.01, .13, 1))
+add_case("mreg_predict_1d_tie", "mreg_predict",
+         NNS:::NNS_mreg_predict_v2_cpp(xt1, c(0, 100, 999), matrix(.07, 1, 2), 1L, 0L,
+                                       c(.01, .01), c(1, 1), FALSE, 1L),
+         scalars = list(k = 1, dist_code = 0, is_class = FALSE),
+         vectors = list(yhat = c(0, 100, 999), mins = c(.01, .01), maxs = c(1, 1)),
+         matrices = list(rpm_x = xt1, Xtest = matrix(.07, 1, 2)), r_fix = "MREG-1D")
+# Dividing by the range puts .03 strictly nearer (.26, .26) than .49; 1/range ties them.
+xd <- cbind(c(.03, .49, 1), c(.03, .49, 1)); qd <- rbind(c(.26, .26), c(.2, .3))
+add_case("mreg_predict_range_divide", "mreg_predict",
+         NNS:::NNS_mreg_predict_v2_cpp(xd, c(0, 100, 999), qd, 1L, 0L, c(.03, .03), c(1, 1), FALSE, 1L),
+         scalars = list(k = 1, dist_code = 0, is_class = FALSE),
+         vectors = list(yhat = c(0, 100, 999), mins = c(.03, .03), maxs = c(1, 1)),
+         matrices = list(rpm_x = xd, Xtest = qd), r_fix = "MREG-DIV")
+# A query about 58 from every regression point: the Student-t weights underflow.
+xf <- matrix(0, 1000, 60); yf <- c(numeric(999), 100); qf <- matrix(0, 1, 60)
+for (i in 0:999) {
+  xf[i + 1, (i + 0:28) %% 60 + 1] <- 1
+  xf[i + 1, (i + 29) %% 60 + 1] <- (sqrt(1 + 4 * (59.57 - i / 999 - 58)) - 1) / 2
+}
+add_case("mreg_predict_far_underflow", "mreg_predict",
+         NNS:::NNS_mreg_predict_v2_cpp(xf, yf, qf, 1000L, 0L, rep(0, 60), rep(1, 60), FALSE, 1L),
+         scalars = list(k = 1000, dist_code = 0, is_class = FALSE),
+         vectors = list(yhat = yf, mins = rep(0, 60), maxs = rep(1, 60)),
+         matrices = list(rpm_x = xf, Xtest = qf))
+
+# X* projection path
+trd <- matrix(round(rnorm(60 * 4), 5), ncol = 4); ted <- matrix(round(rnorm(10 * 4), 5), ncol = 4)
+for (cf in list(c(0.5, -1.2, 0, 2), c(0, 0, 0, 0), c(1, 1, 1, 1))) {
+  ord <- order(abs(cf), decreasing = TRUE, method = "radix")
+  xs <- NNS:::NNS_xstar_path_cpp(trd, ted, cf, as.integer(ord), 1L)
+  add_case(sprintf("xstar_path_%s", paste(cf, collapse = "_")), "xstar_path",
+           c(xs$train, xs$test, xs$denominator),
+           vectors = list(coef = cf, column_order = ord), matrices = list(train = trd, test = ted))
 }
 
 body <- paste(unlist(cases), collapse = ",\n")

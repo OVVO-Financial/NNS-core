@@ -1,6 +1,6 @@
 // src/fast_lm.cpp
 //
-// Pure C++ port of NNS 13.0 fast_lm.cpp. Decoupled from Rcpp.
+// Pure C++ port of NNS fast_lm.cpp (unchanged through R 13.3, 82a92eb). Decoupled from Rcpp.
 //
 // This file preserves the numerical rules and return payloads of the original
 // Rcpp functions:

@@ -10,6 +10,8 @@ set(NNSCORE_CPP_TESTS
     test_central_tendencies
     test_internal_functions
     test_fast_lm
+    test_partition
+    test_mreg
 )
 
 foreach(test_name IN LISTS NNSCORE_CPP_TESTS)
@@ -17,3 +19,10 @@ foreach(test_name IN LISTS NNSCORE_CPP_TESTS)
     target_link_libraries(${test_name} PRIVATE nnscore)
     add_test(NAME ${test_name} COMMAND ${test_name})
 endforeach()
+
+# The fidelity comparator gates CI and sync PRs, so it is tested here too.
+find_package(Python3 COMPONENTS Interpreter)
+if(Python3_Interpreter_FOUND)
+    add_test(NAME test_scripts
+             COMMAND ${Python3_EXECUTABLE} -m unittest discover -s ${PROJECT_SOURCE_DIR}/tests/scripts -v)
+endif()

@@ -18,17 +18,12 @@
     "because a changed public signature means a real port (not a provenance bump) is",
     "required.",
     "`ignore` lists generated Rcpp glue and build files that are intentionally not",
-    "part of the portable core; changes to them do not trigger a manual-port request."
+    "part of the portable core; changes to them do not trigger a manual-port request.",
+    "`nns_reg_points.cpp` (NNS_reg_points_cpp) and `table_ops.cpp` (NNS_mreg_reduce_cpp) are",
+    "exported but never called by the R package; they stay unmapped so a change to them is",
+    "routed to manual review instead of being silently ignored."
   ],
-  "ignore": [
-    "src/RcppExports.cpp",
-    "src/nns_rcpp.cpp",
-    "src/partial_moments_rcpp.cpp",
-    "src/partial_moments_rcpp.h",
-    "src/Makevars",
-    "src/Makevars.win",
-    "src/NNS.dll"
-  ],
+  "ignore": ["src/RcppExports.cpp", "src/nns_rcpp.cpp", "src/Makevars", "src/Makevars.win", "src/NNS.dll"],
   "mappings": [
     {
       "r_src": "src/partial_moments.cpp",
@@ -48,21 +43,21 @@
       "r_src": "src/NNS_dep.cpp",
       "core_paths": ["src/dependence.cpp", "include/nns/dependence.hpp"],
       "auto": false,
-      "fidelity_covered": false,
+      "fidelity_covered": true,
       "required_r_signatures": ["NNS_dep_pair_cpp(", "NNS_dep_matrix_cpp("]
     },
     {
       "r_src": "src/NNS_distance.cpp",
       "core_paths": ["src/distance.cpp", "include/nns/distance.hpp"],
       "auto": false,
-      "fidelity_covered": false,
+      "fidelity_covered": true,
       "required_r_signatures": ["NNS_distance_cpp("]
     },
     {
       "r_src": "src/NNS_part.cpp",
       "core_paths": ["src/partition.cpp", "include/nns/partition.hpp"],
       "auto": false,
-      "fidelity_covered": false,
+      "fidelity_covered": true,
       "required_r_signatures": ["NNS_part_cpp("]
     },
     {
@@ -90,21 +85,21 @@
       "r_src": "src/central_tendencies.cpp",
       "core_paths": ["src/central_tendencies.cpp", "include/nns/central_tendencies.hpp"],
       "auto": false,
-      "fidelity_covered": false,
+      "fidelity_covered": true,
       "required_r_signatures": ["NNS_gravity_cpp(", "NNS_mode_cpp("]
     },
     {
       "r_src": "src/central_tendencies.h",
       "core_paths": ["include/nns/central_tendencies.hpp", "src/central_tendencies.cpp"],
       "auto": false,
-      "fidelity_covered": false,
+      "fidelity_covered": true,
       "required_r_signatures": ["NNS_gravity_cpp(", "NNS_mode_cpp("]
     },
     {
       "r_src": "src/fast_lm.cpp",
       "core_paths": ["src/fast_lm.cpp", "include/nns/fast_lm.hpp"],
       "auto": false,
-      "fidelity_covered": false,
+      "fidelity_covered": true,
       "required_r_signatures": ["fast_lm(", "fast_lm_mult("]
     },
     {
@@ -113,6 +108,42 @@
       "auto": false,
       "fidelity_covered": false,
       "required_r_signatures": ["generate_vectors(", "colSd("]
+    },
+    {
+      "r_src": "src/partial_moments_rcpp.cpp",
+      "core_paths": ["src/partial_moments.cpp", "include/nns/partial_moments.hpp"],
+      "auto": false,
+      "fidelity_covered": false,
+      "notes": "R-facing wrappers (target = mean default, excess_ret, ratio dispatch, degree validation). Not generated glue: semantic changes here need a review even though the core has no direct counterpart.",
+      "required_r_signatures": ["LPM_RCPP(", "UPM_RCPP(", "PMMatrix_RCPP("]
+    },
+    {
+      "r_src": "src/partial_moments_rcpp.h",
+      "core_paths": ["include/nns/partial_moments.hpp"],
+      "auto": false,
+      "fidelity_covered": false,
+      "required_r_signatures": ["LPM_RCPP("]
+    },
+    {
+      "r_src": "src/NNS_mreg_setup.cpp",
+      "core_paths": ["src/mreg_setup.cpp", "include/nns/mreg.hpp"],
+      "auto": false,
+      "fidelity_covered": true,
+      "required_r_signatures": ["NNS_mreg_setup_cpp(", "NNS_duplicate_column_map_cpp("]
+    },
+    {
+      "r_src": "src/NNS_mreg_predict.cpp",
+      "core_paths": ["src/mreg_predict.cpp", "include/nns/mreg.hpp"],
+      "auto": false,
+      "fidelity_covered": true,
+      "required_r_signatures": ["NNS_mreg_predict_v2_cpp(", "NNS_mreg_predict_path_v2_cpp("]
+    },
+    {
+      "r_src": "src/NNS_stack_fast.cpp",
+      "core_paths": ["src/stack_fast.cpp", "include/nns/mreg.hpp"],
+      "auto": false,
+      "fidelity_covered": true,
+      "required_r_signatures": ["NNS_xstar_path_cpp("]
     }
   ]
 }
