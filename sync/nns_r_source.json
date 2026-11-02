@@ -39,6 +39,11 @@
       "id": "CORE-16",
       "r_src": "src/partial_moments.cpp",
       "summary": "negative / NaN degrees silently accepted; now rejected"
+    },
+    {
+      "id": "MREG-1D",
+      "r_src": "src/NNS_mreg_predict.cpp",
+      "summary": "the 1-D duplicated-coordinate fast path compared raw |x - t| instead of the range-normalised distances, so neighbours and ties (and the prediction) depended on the other queries in the batch"
     }
   ]
 }

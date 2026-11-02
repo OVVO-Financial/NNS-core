@@ -88,6 +88,43 @@ int main() {
     for (std::size_t r = 0; r < m; ++r) check_close("1-D path vs single k", p1[r + (k - 1) * m], o[r], 0.0);
   }
 
+  // A non-duplicated query turns the 1-D shortcut off for the whole batch, so
+  // the shortcut must pick the same neighbours and ties as the generic path.
+  // Under NNS, (.07, .07) is equidistant from .01 and .13 only after range scaling.
+  {
+    const double tx[] = {.01, .13, 1, .01, .13, 1}, ty[] = {0, 100, 999};
+    const double tq1[] = {.07, .07}, tq2[] = {.07, .2, .07, .3};
+    const double lo[] = {.01, .01}, hi[] = {1, 1};
+    std::vector<double> gx(n * 2), one(m * 2), two((m + 1) * 2);
+    for (std::size_t i = 0; i < n; ++i) gx[i] = gx[i + n] = std::round(unif(g) * 50.0) / 50.0 + .01;
+    for (std::size_t i = 0; i < m; ++i)
+      one[i] = one[i + m] = two[i] = two[i + m + 1] = std::round(unif(g) * 100.0) / 100.0;
+    two[m] = .2;
+    two[2 * m + 1] = .3;
+    for (int dist = 0; dist <= 2; ++dist) {
+      const std::string tag = "1-D vs batched generic, dist " + std::to_string(dist);
+      const std::vector<double> a = nns::mreg_predict(tx, 3, 2, ty, tq1, 1, 1, dist, lo, hi, false);
+      const std::vector<double> b = nns::mreg_predict(tx, 3, 2, ty, tq2, 2, 1, dist, lo, hi, false);
+      check_close(tag + " tie", a[0], b[0], 0.0);
+      if (dist == nns::kMregDistNNS) check_close("R reference helper", a[0], 50.0, 0.0);
+      for (bool is_cls : {false, true}) {
+        const std::vector<double>& yy = is_cls ? cls : yhat;
+        const std::vector<double> pa = nns::mreg_predict_path(gx.data(), n, 2, yy.data(), one.data(), m,
+                                                              8, dist, lo, hi, is_cls);
+        const std::vector<double> pb = nns::mreg_predict_path(gx.data(), n, 2, yy.data(), two.data(),
+                                                              m + 1, 8, dist, lo, hi, is_cls);
+        for (int k = 1; k <= 8; ++k) {
+          const std::vector<double> sa = nns::mreg_predict(gx.data(), n, 2, yy.data(), one.data(), m, k,
+                                                           dist, lo, hi, is_cls);
+          for (std::size_t r = 0; r < m; ++r) {
+            check_close(tag + " path", pa[r + (k - 1) * m], pb[r + (k - 1) * (m + 1)], 0.0);
+            check_close(tag + " single", sa[r], pa[r + (k - 1) * m], 0.0);
+          }
+        }
+      }
+    }
+  }
+
   // A query about 58 from every regression point, where the Student-t weights
   // underflow. R 13.3 NNS:::NNS_mreg_predict_v2_cpp(x, y, matrix(0, 1, 60),
   // 1000L, 0L, rep(0, 60), rep(1, 60), FALSE, 1L) on the same x, y returns

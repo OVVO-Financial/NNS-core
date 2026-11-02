@@ -347,6 +347,14 @@ for (dc in 0:2) {
            vectors = list(yhat = y1d, mins = c(0, 0), maxs = c(1, 2)),
            matrices = list(rpm_x = r1d, Xtest = q1d))
 }
+# Range scaling makes (.07, .07) equidistant from .01 and .13; the raw differences are not.
+xt1 <- cbind(c(.01, .13, 1), c(.01, .13, 1))
+add_case("mreg_predict_1d_tie", "mreg_predict",
+         NNS:::NNS_mreg_predict_v2_cpp(xt1, c(0, 100, 999), matrix(.07, 1, 2), 1L, 0L,
+                                       c(.01, .01), c(1, 1), FALSE, 1L),
+         scalars = list(k = 1, dist_code = 0, is_class = FALSE),
+         vectors = list(yhat = c(0, 100, 999), mins = c(.01, .01), maxs = c(1, 1)),
+         matrices = list(rpm_x = xt1, Xtest = matrix(.07, 1, 2)), r_fix = "MREG-1D")
 # A query about 58 from every regression point: the Student-t weights underflow.
 xf <- matrix(0, 1000, 60); yf <- c(numeric(999), 100); qf <- matrix(0, 1, 60)
 for (i in 0:999) {
