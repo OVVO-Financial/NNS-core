@@ -88,9 +88,8 @@ R `src/` files the core maps to, byte for byte as they are at `r_commit`
 wrappers), so `diff original_src/<file> <R checkout>/src/<file>` shows exactly
 what a future sync must port.
 
-The R-only files `nns_reg_points.cpp` and `table_ops.cpp` (exported but never
-called by the R package) are deliberately unmapped: a change to them is
-routed to manual review.
+The R-only file `nns_reg_points.cpp` (exported but never called by the R
+package) is deliberately unmapped: a change to it is routed to manual review.
 
 ## R bugs fixed ahead of R
 

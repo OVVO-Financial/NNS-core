@@ -106,23 +106,21 @@ for (data_name in c("ret", "price", "disc")) {
   v <- get(data_name)
   tv <- grid_targets(v)
   for (deg in c(0, 1, 2, 3, 4, 8, 12, 0.5, 2.5)) {
-    # Degrees >= 3 on these data hit the NNS 13.0-13.3 binomial-expansion
-    # cancellation (CORE-01); fractional degrees use the direct path.
-    fix <- if (deg >= 3 && deg == round(deg)) "CORE-01" else NULL
+    # Degrees >= 3 on these data cancelled in the old binomial-expansion
+    # backend; fractional degrees use the direct path.
     # Degrees 1-2 agree to rounding with the old backend except in far tails.
     tol <- if (deg %in% c(1, 2)) 1e-7 else NULL
     add_case(sprintf("lpm_v_%s_d%g", data_name, deg), "lpm_v", LPM(deg, tv, v),
-             scalars = list(degree = deg), vectors = list(target = tv, x = v), tol = tol, r_fix = fix)
+             scalars = list(degree = deg), vectors = list(target = tv, x = v), tol = tol)
     add_case(sprintf("upm_v_%s_d%g", data_name, deg), "upm_v", UPM(deg, tv, v),
-             scalars = list(degree = deg), vectors = list(target = tv, x = v), tol = tol, r_fix = fix)
+             scalars = list(degree = deg), vectors = list(target = tv, x = v), tol = tol)
   }
   for (deg in c(0, 1, 2, 4)) {
-    fix <- if (deg >= 3) "CORE-01" else NULL
     tol <- if (deg %in% c(1, 2)) 1e-7 else NULL
     add_case(sprintf("lpm_ratio_v_%s_d%g", data_name, deg), "lpm_ratio_v", LPM.ratio(deg, tv, v),
-             scalars = list(degree = deg), vectors = list(target = tv, x = v), tol = tol, r_fix = fix)
+             scalars = list(degree = deg), vectors = list(target = tv, x = v), tol = tol)
     add_case(sprintf("upm_ratio_v_%s_d%g", data_name, deg), "upm_ratio_v", UPM.ratio(deg, tv, v),
-             scalars = list(degree = deg), vectors = list(target = tv, x = v), tol = tol, r_fix = fix)
+             scalars = list(degree = deg), vectors = list(target = tv, x = v), tol = tol)
   }
   # <= 32 targets stay on the direct path at every degree.
   t20 <- tv[seq(1, length(tv), length.out = 20)]
@@ -221,8 +219,7 @@ for (nm in c("X3", "X3t")) {
 }
 
 # Degree-0 counts with targets ON data values (ties): CLPM + CUPM + DPM must
-# partition the sample. R 13.3 counted ties as both lower and discordant/upper;
-# fixed in the CORE-09 R patch, so these cases are tagged r_fix.
+# partition the sample (ties count as lower only).
 Xtie <- cbind(disc[1:100], disc[101:200], disc[201:300])
 ttie <- apply(Xtie, 2, median)
 for (nrm in c(TRUE, FALSE)) {
@@ -230,9 +227,9 @@ for (nrm in c(TRUE, FALSE)) {
   add_case(sprintf("clpm_nd_tie_n%d", nrm), "clpm_nd", Co.LPM_nD(Xtie, ttie, 0, nrm),
            scalars = sc, vectors = list(target = ttie), matrices = list(data = Xtie))
   add_case(sprintf("cupm_nd_tie_n%d", nrm), "cupm_nd", Co.UPM_nD(Xtie, ttie, 0, nrm),
-           scalars = sc, vectors = list(target = ttie), matrices = list(data = Xtie), r_fix = "CORE-09")
+           scalars = sc, vectors = list(target = ttie), matrices = list(data = Xtie))
   add_case(sprintf("dpm_nd_tie_n%d", nrm), "dpm_nd", DPM_nD(Xtie, ttie, 0, nrm),
-           scalars = sc, vectors = list(target = ttie), matrices = list(data = Xtie), r_fix = "CORE-09")
+           scalars = sc, vectors = list(target = ttie), matrices = list(data = Xtie))
 }
 
 # ---- gravity / mode --------------------------------------------------------
@@ -254,11 +251,11 @@ for (nm in names(cvec)) {
 }
 big <- c(3e9, 3e9, 3e9, 1, 2)
 add_case("mode_discrete_3e9", "mode", NNS.mode(big, discrete = TRUE, multi = FALSE),
-         scalars = list(discrete = TRUE, multi = FALSE), vectors = list(x = big), r_fix = "CORE-07")
-# Equally high peaks: the single mode averages them instead of taking one by sort order.
+         scalars = list(discrete = TRUE, multi = FALSE), vectors = list(x = big))
+# Equally high peaks: the single mode is the one nearest the gravity.
 eqp <- rep(0:19, each = 400)
 add_case("mode_equal_peaks", "mode", NNS.mode(eqp, discrete = FALSE, multi = FALSE),
-         scalars = list(discrete = FALSE, multi = FALSE), vectors = list(x = eqp), r_fix = "MODE-TIES")
+         scalars = list(discrete = FALSE, multi = FALSE), vectors = list(x = eqp))
 
 # ---- partition (NNS_part_cpp) ----------------------------------------------
 px <- ret[1:300]; py <- ret[301:600]
@@ -389,10 +386,8 @@ for (red in 0:3) {
     add_case(sprintf("mreg_setup_r%d_c%d", red, cls), "mreg_setup", s$RPM,
              scalars = list(reducer = red, is_class = cls),
              vectors = list(y = yy, boundaries = bvec, boundary_lengths = blen),
-             matrices = list(X = Xm),
-             # reducer 2 ("mode"): R 13.3's native setup took the most frequent
-             # exact value; fixed to NNS.mode in the CORE-03 R patch.
-             r_fix = if (red == 2L) "CORE-03" else NULL)
+             # reducer 2 ("mode") is NNS.mode, not the most frequent exact value.
+             matrices = list(X = Xm))
   }
 }
 s <- NNS:::NNS_mreg_setup_cpp(Xm[, 1:3], ym, bounds[1:3], 3L, FALSE)
@@ -441,14 +436,14 @@ add_case("mreg_predict_1d_tie", "mreg_predict",
                                        c(.01, .01), c(1, 1), FALSE, 1L),
          scalars = list(k = 1, dist_code = 0, is_class = FALSE),
          vectors = list(yhat = c(0, 100, 999), mins = c(.01, .01), maxs = c(1, 1)),
-         matrices = list(rpm_x = xt1, Xtest = matrix(.07, 1, 2)), r_fix = "MREG-1D")
+         matrices = list(rpm_x = xt1, Xtest = matrix(.07, 1, 2)))
 # Dividing by the range puts .03 strictly nearer (.26, .26) than .49; 1/range ties them.
 xd <- cbind(c(.03, .49, 1), c(.03, .49, 1)); qd <- rbind(c(.26, .26), c(.2, .3))
 add_case("mreg_predict_range_divide", "mreg_predict",
          NNS:::NNS_mreg_predict_v2_cpp(xd, c(0, 100, 999), qd, 1L, 0L, c(.03, .03), c(1, 1), FALSE, 1L),
          scalars = list(k = 1, dist_code = 0, is_class = FALSE),
          vectors = list(yhat = c(0, 100, 999), mins = c(.03, .03), maxs = c(1, 1)),
-         matrices = list(rpm_x = xd, Xtest = qd), r_fix = "MREG-DIV")
+         matrices = list(rpm_x = xd, Xtest = qd))
 # A query about 58 from every regression point: the Student-t weights underflow.
 xf <- matrix(0, 1000, 60); yf <- c(numeric(999), 100); qf <- matrix(0, 1, 60)
 for (i in 0:999) {
@@ -474,11 +469,11 @@ for (cf in list(c(0.5, -1.2, 0, 2), c(0, 0, 0, 0), c(1, 1, 1, 1))) {
 # ---- stochastic dominance (NNS_FSD/SSD/TSD_uni_cpp) --------------------------
 # x is never longer than y: R 13.3 walked y with x's length, which reads past
 # the end of a shorter y.
-add_sd <- function(name, degree, x, y, type = "discrete", r_fix = NULL) {
+add_sd <- function(name, degree, x, y, type = "discrete") {
   v <- switch(degree, NNS.FSD.uni(x, y, type), NNS.SSD.uni(x, y), NNS.TSD.uni(x, y))
   add_case(sprintf("sd_uni_%s", name), "sd_uni", v,
            scalars = list(degree = degree, discrete = type == "discrete"),
-           vectors = list(x = x, y = y), r_fix = r_fix)
+           vectors = list(x = x, y = y))
 }
 sa <- round(rnorm(50), 4); sb <- round(sa - abs(rnorm(50)), 4)
 for (deg in 1:3) {
@@ -487,38 +482,37 @@ for (deg in 1:3) {
 }
 add_sd("shift_cont", 1, sa, sb, "continuous")
 su <- round(runif(30, 1, 3), 3); sv <- round(runif(45, 0, 2), 3)
-add_sd("unequal_d1", 1, su, sv, r_fix = "SDA-08")
-add_sd("unequal_short_d1", 1, 4, c(3, 0), r_fix = "SDA-08")
-add_sd("unequal_short_d2", 2, c(1, 4), c(3, 1, 3, 0, 2), r_fix = "SDA-08")
-add_sd("unequal_short_d3", 3, c(4, 1), c(0, 3, 3, 4), r_fix = "SDA-08")
+add_sd("unequal_d1", 1, su, sv)
+add_sd("unequal_short_d1", 1, 4, c(3, 0))
+add_sd("unequal_short_d2", 2, c(1, 4), c(3, 1, 3, 0, 2))
+add_sd("unequal_short_d3", 3, c(4, 1), c(0, 3, 3, 4))
 # Equal curves, and ratios equal at every knot, are not dominance.
-add_sd("coincide_cont", 1, c(1, 2), c(1, 1, 2, 2), "continuous", r_fix = "SDA-07")
-add_sd("coincide_d2", 2, c(1, 2), c(1, 1, 2, 2), r_fix = "SDA-07")
-add_sd("coincide_d3", 3, c(1, 2), c(1, 1, 2, 2), r_fix = "SDA-07")
-add_sd("knots_cross_xy", 1, c(0, 0, 3, 3), c(1, 1, 3, 0), "continuous", r_fix = "SDA-07")
-add_sd("knots_cross_yx", 1, c(1, 1, 3, 0), c(0, 0, 3, 3), "continuous", r_fix = "SDA-07")
-add_sd("midpoint_xy", 1, c(0, 1, 1), c(0, 0, 1), "continuous", r_fix = "SDA-07")
-add_sd("midpoint_yx", 1, c(0, 0, 1), c(0, 1, 1), "continuous", r_fix = "SDA-07")
-add_sd("midpoint_mass_xy", 1, c(1, 1), c(0, 1), "continuous", r_fix = "SDA-07")
+add_sd("coincide_cont", 1, c(1, 2), c(1, 1, 2, 2), "continuous")
+add_sd("coincide_d2", 2, c(1, 2), c(1, 1, 2, 2))
+add_sd("coincide_d3", 3, c(1, 2), c(1, 1, 2, 2))
+add_sd("knots_cross_xy", 1, c(0, 0, 3, 3), c(1, 1, 3, 0), "continuous")
+add_sd("knots_cross_yx", 1, c(1, 1, 3, 0), c(0, 0, 3, 3), "continuous")
+add_sd("midpoint_xy", 1, c(0, 1, 1), c(0, 0, 1), "continuous")
+add_sd("midpoint_yx", 1, c(0, 0, 1), c(0, 1, 1), "continuous")
+add_sd("midpoint_mass_xy", 1, c(1, 1), c(0, 1), "continuous")
 # Continuous ratio 0/0 at a point mass is the CDF value.
-add_sd("ratio_00_mass", 1, rep(4, 6), c(5, 5, 0, 4, 0, 2), "continuous", r_fix = "SDA-13")
+add_sd("ratio_00_mass", 1, rep(4, 6), c(5, 5, 0, 4, 0, 2), "continuous")
 # The curves cross between sample points.
-add_sd("interior_d3", 3, c(-0.85, -1.52, 0.68), c(-0.21, -0.33, -1.67), r_fix = "SDA-05")
+add_sd("interior_d3", 3, c(-0.85, -1.52, 0.68), c(-0.21, -0.33, -1.67))
 add_sd("interior_cont", 1, c(0.15, 1.55, -0.86, -0.8, 0.25, 0.33),
-       c(-0.15, 1.17, 0.26, -0.04, -2.44, 1.19), "continuous", r_fix = "SDA-05")
+       c(-0.15, 1.17, 0.26, -0.04, -2.44, 1.19), "continuous")
 # Rounding-level differences are ties; the large sample needs compensated
 # prefix sums to stay within the tolerance.
-add_sd("tol_sum", 2, c(0.1, 0.7), c(0, 0.8), r_fix = "SDA-09")
+add_sd("tol_sum", 2, c(0.1, 0.7), c(0, 0.8))
 zq <- qnorm(ppoints(100))
-add_sd("tol_spread", 2, zq + 0.37, 2 * zq + 0.37, r_fix = "SDA-09")
+add_sd("tol_spread", 2, zq + 0.37, 2 * zq + 0.37)
 zr <- round(qnorm(ppoints(1e4)), 1)
-add_sd("tol_spread_1e4_d2", 2, 0.1 * zr + 0.3, 0.2 * zr + 0.3, r_fix = "SDA-09")
-add_sd("tol_spread_1e4_d3", 3, 0.1 * zr + 0.3, 0.2 * zr + 0.3, r_fix = "SDA-09")
+add_sd("tol_spread_1e4_d2", 2, 0.1 * zr + 0.3, 0.2 * zr + 0.3)
+add_sd("tol_spread_1e4_d3", 3, 0.1 * zr + 0.3, 0.2 * zr + 0.3)
 # A common shift keeps the verdict; the tolerances used to grow with the level squared.
-add_sd("shift_20000_d3", 3, c(-.0085, -.0152, .0068) + 20000, c(-.0021, -.0033, -.0167) + 20000,
-       r_fix = "SD-SHIFT")
-add_sd("shift_1e6_d3", 3, c(.01, .07) + 1e6, c(0, .08) + 1e6, r_fix = "SD-SHIFT")
-add_sd("shift_20000_d2", 2, c(.01, .03) + 20000, c(0, .04) + 20000, r_fix = "SD-SHIFT")
+add_sd("shift_20000_d3", 3, c(-.0085, -.0152, .0068) + 20000, c(-.0021, -.0033, -.0167) + 20000)
+add_sd("shift_1e6_d3", 3, c(.01, .07) + 1e6, c(0, .08) + 1e6)
+add_sd("shift_20000_d2", 2, c(.01, .03) + 20000, c(0, .04) + 20000)
 
 # ---- seasonality (NNS_seas_cpp) ---------------------------------------------
 # Every component series of each lag, dispersion by the Gini mean difference.
@@ -560,22 +554,21 @@ add_seas("linear_across_zero", (1:40) - 20.5)
 add_seas("short", c(1, 2, 3, 4))
 
 # ---- ARMA seasonal weights (ARMA.seas.weighting) -----------------------------
-# NNS.ARMA falls back to equal weights in its R wrapper when
-# (VarCV - CV) / sqrt(lag) sums to 0; R 13.3 has no wrapper and returns zeros.
-add_arma_w <- function(name, M, r_fix = NULL) {
+# Equal weights when (VarCV - CV) / sqrt(lag) sums to 0.
+add_arma_w <- function(name, M) {
   ns <- asNamespace("NNS")
   fn <- if (exists(".arma_lag_weights", envir = ns, inherits = FALSE)) ns$.arma_lag_weights
         else ns$ARMA.seas.weighting
   w <- fn(FALSE, M)
   add_case(sprintf("arma_seas_weighting_%s", name), "arma_seas_weighting", c(w$lag, w$Weights),
            vectors = list(periods = M$Period, covar = M$Coefficient.of.Variation,
-                          varcovar = M$Variable.Coefficient.of.Variation), r_fix = r_fix)
+                          varcovar = M$Variable.Coefficient.of.Variation))
 }
 add_arma_w("airpassengers", NNS:::NNS_seas_cpp(ap_x, NULL, TRUE)$all.periods)
 add_arma_w("sentinel", data.frame(Period = c(7, 14, 21), Coefficient.of.Variation = 0.3,
-                                  Variable.Coefficient.of.Variation = 0.3), r_fix = "TS-11")
+                                  Variable.Coefficient.of.Variation = 0.3))
 add_arma_w("constant", data.frame(Period = c(12, 24), Coefficient.of.Variation = 0,
-                                  Variable.Coefficient.of.Variation = 0), r_fix = "TS-11")
+                                  Variable.Coefficient.of.Variation = 0))
 
 body <- paste(unlist(cases), collapse = ",\n")
 json <- paste0(

@@ -141,9 +141,11 @@ struct CoUPM_CountWorker : public Worker {
   void operator()(std::size_t begin, std::size_t end) override {
     std::size_t d = target.length();
     for (std::size_t i = begin; i < end; ++i) {
+      // Strictly above, as Co.UPM does: ties go to the lower side so that at
+      // degree 0 CLPM + CUPM + DPM partition the sample.
       bool above_all = true;
       for (std::size_t j = 0; j < d; ++j) {
-        if (data(i, j) < target[j]) { above_all = false; break; }
+        if (data(i, j) <= target[j]) { above_all = false; break; }
       }
       output[i] = above_all ? 1.0 : 0.0;
     }
@@ -184,10 +186,11 @@ struct DpmCountWorker : public Worker {
   void operator()(std::size_t begin, std::size_t end) override {
     std::size_t d = target.length();
     for (std::size_t i = begin; i < end; ++i) {
+      // Discordant = neither all-lower (x <= target) nor all-upper (x > target).
       bool allBelow = true, allAbove = true;
       for (std::size_t j = 0; j < d; ++j) {
         double diff = data(i, j) - target[j];
-        if (diff >= 0.0) allBelow = false;
+        if (diff > 0.0) allBelow = false;
         if (diff <= 0.0) allAbove = false;
         if (!allBelow && !allAbove) break;
       }
@@ -442,6 +445,7 @@ NumericVector CoLPM_nD_batch_RCPP(const NumericMatrix& data,
                                   const NumericMatrix& targets,
                                   double degree = 0.0,
                                   bool norm = true) {
+  nns_check_degree(degree, "degree");
   if (data.ncol() != targets.ncol()) {
     stop("`targets` must have the same number of columns as `data`");
   }
@@ -476,6 +480,7 @@ static const R_xlen_t NNS_DIRECT_PATH_MAX_TARGETS = 32;
 NumericVector LPM_CPv(const double &degree,
                       const NumericVector &target,
                       const NumericVector &variable) {
+  nns_check_degree(degree, "degree");
   if (target.size() <= NNS_DIRECT_PATH_MAX_TARGETS) {
     NumericVector output(target.size());
     RcppParallel::RVector<double> v(variable);
@@ -494,6 +499,7 @@ NumericVector LPM_CPv(const double &degree,
 NumericVector UPM_CPv(const double &degree,
                       const NumericVector &target,
                       const NumericVector &variable) {
+  nns_check_degree(degree, "degree");
   if (target.size() <= NNS_DIRECT_PATH_MAX_TARGETS) {
     NumericVector output(target.size());
     RcppParallel::RVector<double> v(variable);
@@ -921,6 +927,8 @@ List PMMatrix_CPv(
     const bool &pop_adj,
     const bool &norm
 ) {
+  nns_check_degree(LPM_degree, "LPM_degree");
+  nns_check_degree(UPM_degree, "UPM_degree");
   size_t variable_cols = variable.cols();
   size_t target_length = target.size();
   if(variable_cols != target_length){

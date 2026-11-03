@@ -19,9 +19,9 @@
     "required.",
     "`ignore` lists generated Rcpp glue and build files that are intentionally not",
     "part of the portable core; changes to them do not trigger a manual-port request.",
-    "`nns_reg_points.cpp` (NNS_reg_points_cpp) and `table_ops.cpp` (NNS_mreg_reduce_cpp) are",
-    "exported but never called by the R package; they stay unmapped so a change to them is",
-    "routed to manual review instead of being silently ignored."
+    "`nns_reg_points.cpp` (NNS_reg_points_cpp) is exported but never called by the R",
+    "package; it stays unmapped so a change to it is routed to manual review instead of",
+    "being silently ignored."
   ],
   "ignore": ["src/RcppExports.cpp", "src/nns_rcpp.cpp", "src/Makevars", "src/Makevars.win", "src/NNS.dll"],
   "mappings": [
@@ -64,14 +64,14 @@
       "r_src": "src/NNS_seas.cpp",
       "core_paths": ["src/seasonality.cpp", "include/nns/seasonality.hpp"],
       "auto": false,
-      "fidelity_covered": false,
+      "fidelity_covered": true,
       "required_r_signatures": ["NNS_seas_cpp("]
     },
     {
       "r_src": "src/SD.cpp",
       "core_paths": ["src/stochastic_dominance.cpp", "include/nns/stochastic_dominance.hpp"],
       "auto": false,
-      "fidelity_covered": false,
+      "fidelity_covered": true,
       "required_r_signatures": ["NNS_SD_efficient_set_parallel_cpp(", "NNS_FSD_uni_cpp(", "NNS_SSD_uni_cpp("]
     },
     {
