@@ -1,6 +1,6 @@
 // tests/cpp/test_seasonality.cpp
 //
-// Fixed values from R's NNS_seas_cpp (e1068620): the dispersion of each
+// Fixed values from R's NNS_seas_cpp (de167f08): the dispersion of each
 // component series is its Gini mean difference, a CV only for a series on one
 // side of 0, and max_period caps the scan.
 //
@@ -54,20 +54,38 @@ int main() {
   check(s.best_period == 12, "sine best period 12");
   check(s.periods == std::vector<int>({12, 6, 18, 4, 13, 8, 2, 3}), "sine periods");
   check_cvs("sine", s,
-            {1.1462454605814141e-16, 0.066347569912335647, 0.07465376541686071,
-             0.074946105682756572, 0.075743740498660603, 0.078352746850154642,
-             0.079025266554754767, 0.079106687507153842},
-            0.081000439187511694);
+            {1.320685195487396e-16, 0.06634756991233566, 0.074653765416860723,
+             0.074946105682756614, 0.075743740498660561, 0.078352746850154656,
+             0.079025266554754739, 0.079106687507153883},
+            0.08100043918751168);
 
   // max_period stops the scan at lag 5; a modulo period beyond it is still scored.
   const nns::SeasonalityResult m5 = seas(sine, {}, true, 5);
   check(m5.periods == std::vector<int>({4, 2, 3}), "max_period 5 periods");
   const nns::SeasonalityResult m5m = seas(sine, {12}, true, 5);
   check(m5m.periods == std::vector<int>({12}), "max_period 5, modulo 12");
-  check_cvs("max_period 5, modulo 12", m5m, {1.1462454605814141e-16}, 0.081000439187511694);
+  check_cvs("max_period 5, modulo 12", m5m, {1.320685195487396e-16}, 0.08100043918751168);
   const nns::SeasonalityResult m5a = seas(sine, {12}, false, 5);
   check(m5a.periods == std::vector<int>({12, 4, 2, 3, 1}), "max_period 5, modulo 12, all");
   check(seas(sine, {}, true, 0).periods == std::vector<int>({1}), "max_period 0 scans lag 1");
+
+  // At a high level the Gini is measured from each component's minimum.
+  for (double lev : {1e6, 1e9}) {
+    std::vector<double> hi(96);
+    for (int t = 1; t <= 96; ++t) hi[t - 1] = lev + std::sin(2.0 * kPi * t / 12.0);
+    const nns::SeasonalityResult h = seas(hi);
+    check(h.best_period == 12, "high-level sine best period 12");
+    for (double c : h.all_coef_var) check(c >= 0.0, "high-level sine CVs are not negative");
+    if (lev == 1e9) {
+      check(h.all_coef_var.size() >= 3, "1e9 sine CV count");
+      if (h.all_coef_var.size() >= 3) {
+        check_close("1e9 sine CV 12", h.all_coef_var[0], 0.0, 1e-25);
+        check_close("1e9 sine CV 6", h.all_coef_var[1], 6.634757147894965e-10, 1e-22);
+        check_close("1e9 sine CV 18", h.all_coef_var[2], 7.4641017913818346e-10, 1e-22);
+      }
+      check_close("1e9 sine CV(X)", h.all_var_coef_var.at(0), 8.1000441166392508e-10, 1e-22);
+    }
+  }
 
   // Rounded noisy sine.
   const std::vector<double> noisy = {
@@ -84,9 +102,9 @@ int main() {
   const nns::SeasonalityResult ns = seas(noisy);
   check(ns.periods == std::vector<int>({12, 13, 6, 4}), "noisy sine periods");
   check_cvs("noisy sine", ns,
-            {0.021470698078126623, 0.070400573968646879, 0.074796433826565797,
-             0.08018168620800166},
-            0.080879033767251154);
+            {0.021470698078126609, 0.070400573968646865, 0.074796433826565825,
+             0.080181686208001701},
+            0.080879033767251335);
 
   // Constant series and components: Gini 0, so no lag is strictly below CV(X) = 0.
   for (double v : {5.0, 0.1}) {

@@ -1,6 +1,6 @@
 // src/seasonality.cpp
 //
-// Implementation extracted from NNS NNS_seas.cpp (synced to R 13.3, e1068620).
+// Implementation extracted from NNS NNS_seas.cpp (synced to R 13.3, de167f08).
 // Decoupled from Rcpp.
 //
 // SPDX-License-Identifier: GPL-3.0-only
@@ -72,14 +72,15 @@ SeasonalityResult seasonality(const double* x, std::size_t n,
       const double v = x[i];
       if (rank[j] == 0) first[j] = v;
       last[j] = v;
-      acc[j] += (2.0 * rank[j] + 1.0 - len[j]) * v;
+      // The weights sum to 0, so measuring from the component minimum avoids cancelling a large level.
+      acc[j] += (2.0 * rank[j] + 1.0 - len[j]) * (v - first[j]);
       sum[j] += v;
       ++rank[j];
     }
     double wsum = 0.0;
     for (int j = 0; j < m; ++j) {
       const double k = static_cast<double>(len[j]);
-      const double g = (len[j] < 2 || first[j] == last[j]) ? 0.0 : 2.0 * acc[j] / (k * (k - 1.0));
+      const double g = (len[j] < 2 || first[j] == last[j]) ? 0.0 : std::max(0.0, 2.0 * acc[j] / (k * (k - 1.0)));
       wsum += k * (use_cv ? (g == 0.0 ? 0.0 : g / std::fabs(sum[j] / k)) : g);
     }
     return wsum / static_cast<double>(ni);
