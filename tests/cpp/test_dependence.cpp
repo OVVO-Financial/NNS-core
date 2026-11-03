@@ -8,6 +8,7 @@
 #include "nns/partition.hpp"
 
 #include <cmath>
+#include <limits>
 #include <string>
 #include <vector>
 
@@ -136,6 +137,31 @@ int main() {
   for (bool asym : {false, true})
     check_close(std::string("dep_local") + (asym ? " asym" : ""),
                 nns::dep_local(x.data(), y.data(), 80, qa, qb, asym), 0.11550010474265658, kTol);
+  // NaN used to loop forever in the tied-value scans; every entry point rejects it.
+  std::vector<double> tied_nan = xd, tied_inf = xd;
+  tied_nan[9] = std::nan("");
+  tied_inf[9] = std::numeric_limits<double>::infinity();
+  const std::vector<std::string> one(80, "q");
+  for (const std::vector<double>* v : {&tied_nan, &tied_inf}) {
+    const std::string what = (v == &tied_nan) ? " NaN" : " Inf";
+    for (bool asym : {false, true}) {
+      nns_test::check_throws("dep_pair x" + what, [&] {
+        nns::dep_pair(v->data(), yd.data(), 80, one, one, one, asym);
+      });
+      nns_test::check_throws("dep_pair y" + what, [&] {
+        nns::dep_pair(xd.data(), v->data(), 80, one, one, one, asym);
+      });
+      nns_test::check_throws("dep_local" + what, [&] {
+        nns::dep_local(xd.data(), v->data(), 80, one, one, asym);
+      });
+    }
+    nns_test::check_throws("dep_levels" + what, [&] { nns::dep_levels(v->data(), yd.data(), 80, one); });
+    nns_test::check_throws("dep_matrix" + what, [&] {
+      std::vector<double> M = xd;
+      M.insert(M.end(), v->begin(), v->end());
+      nns::dep_matrix(M.data(), 80, 2, false, 1);
+    });
+  }
   nns_test::check_throws("dep_pair label length", [&] {
     nns::dep_pair(x.data(), y.data(), 80, qa, {}, {}, false);
   });

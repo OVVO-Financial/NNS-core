@@ -338,6 +338,14 @@ bool either_constant(const std::vector<double>& xv, const std::vector<double>& y
   return xv.size() < 2 || cx || cy;
 }
 
+// NaN never equals itself, so the run scans over tied values would not advance.
+void check_finite(const double* x, const double* y, std::size_t n) {
+  for (std::size_t i = 0; i < n; ++i) {
+    if (!std::isfinite(x[i])) throw std::invalid_argument("x must be finite.");
+    if (!std::isfinite(y[i])) throw std::invalid_argument("y must be finite.");
+  }
+}
+
 void check_labels(const std::vector<std::string>& q, std::size_t n, const char* msg) {
   if (q.size() != n) throw std::invalid_argument(msg);
 }
@@ -414,6 +422,7 @@ DepResult dep_pair(const double* x, const double* y, std::size_t n,
                    const std::vector<std::string>& quad_xy,
                    const std::vector<std::string>& quad_yx,
                    const std::vector<std::string>& quad_joint, bool asym) {
+  check_finite(x, y, n);
   check_labels(quad_xy, n, "x, y and quad_xy must all have the same length");
   if (!asym && (quad_yx.size() != n || quad_joint.size() != n))
     throw std::invalid_argument("quad_yx and quad_joint must have the length of x when asym = FALSE");
@@ -451,6 +460,7 @@ DepResult dep_pair(const double* x, const double* y, std::size_t n,
 
 std::vector<double> dep_levels(const double* x, const double* y, std::size_t n,
                                const std::vector<std::string>& quad_xy) {
+  check_finite(x, y, n);
   check_labels(quad_xy, n, "x, y and quad_xy must all have the same length");
   const std::vector<double> xv(x, x + n), yv(y, y + n);
   if (either_constant(xv, yv)) return {0.0};
@@ -462,6 +472,7 @@ std::vector<double> dep_levels(const double* x, const double* y, std::size_t n,
 double dep_local(const double* x, const double* y, std::size_t n,
                  const std::vector<std::string>& quad_xy,
                  const std::vector<std::string>& quad_yx, bool asym) {
+  check_finite(x, y, n);
   check_labels(quad_xy, n, "x, y and quad_xy must all have the same length");
   if (!asym) check_labels(quad_yx, n, "quad_yx must have the length of x when asym = FALSE");
   const std::vector<double> xv(x, x + n), yv(y, y + n);
@@ -481,10 +492,7 @@ double dep_local(const double* x, const double* y, std::size_t n,
 // ---------- NNS.dep / NNS.dep.matrix ----------
 
 DepResult dep(const double* x, const double* y, std::size_t n, bool asym) {
-  for (std::size_t i = 0; i < n; ++i) {
-    if (!std::isfinite(x[i])) throw std::invalid_argument("x must be finite.");
-    if (!std::isfinite(y[i])) throw std::invalid_argument("y must be finite.");
-  }
+  check_finite(x, y, n);
   if (n < 2) return {0.0, 0.0};
   const std::vector<double> xv(x, x + n), yv(y, y + n);
   const std::vector<std::string> qxy = dep_partition(xv, yv, true);

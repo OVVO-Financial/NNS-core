@@ -38,18 +38,20 @@ struct DepMatrixResult {
 /// @param quad_joint Labels of the joint partition of (x, y); unused when asym.
 /// @param asym Only the partition on x (the dependence of y on x).
 /// @return DepResult containing the scalar correlation and dependence.
+/// Throws std::invalid_argument on non-finite x or y or on label length mismatch.
 DepResult dep_pair(const double* x, const double* y, std::size_t n,
                    const std::vector<std::string>& quad_xy,
                    const std::vector<std::string>& quad_yx,
                    const std::vector<std::string>& quad_joint, bool asym = false);
 
 /// Unfloored dependence of y on x at each distinct level of the partition on
-/// x (R NNS_dep_levels_cpp); {0} when x or y is constant.
+/// x (R NNS_dep_levels_cpp); {0} when x or y is constant. Throws on non-finite input.
 std::vector<double> dep_levels(const double* x, const double* y, std::size_t n,
                                const std::vector<std::string>& quad_xy);
 
 /// Finest-cell dependence (R NNS_dep_local_cpp), the measure NNS.reg's default
-/// order and dy.d_'s step rule read. quad_yx is unused when asym.
+/// order and dy.d_'s step rule read. quad_yx is unused when asym. Throws on
+/// non-finite input.
 double dep_local(const double* x, const double* y, std::size_t n,
                  const std::vector<std::string>& quad_xy,
                  const std::vector<std::string>& quad_yx, bool asym = true);
