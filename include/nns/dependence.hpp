@@ -61,7 +61,7 @@ double dep_local(const double* x, const double* y, std::size_t n,
 DepResult dep(const double* x, const double* y, std::size_t n, bool asym = false);
 
 /// The pairwise dependence matrix of R NNS.dep(X, asym). Entry [i, j] is
-/// dep(column i, column j); symmetric unless asym.
+/// dep(column i, column j) off the diagonal and 1 on it; symmetric unless asym.
 ///
 /// @param X Pointer to the column-major data matrix.
 /// @param n Number of rows in X.
