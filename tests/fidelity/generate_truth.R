@@ -252,6 +252,14 @@ for (nm in names(cvec)) {
 big <- c(3e9, 3e9, 3e9, 1, 2)
 add_case("mode_discrete_3e9", "mode", NNS.mode(big, discrete = TRUE, multi = FALSE),
          scalars = list(discrete = TRUE, multi = FALSE), vectors = list(x = big))
+# Tied discrete modes and two- or three-point samples: nearest the gravity, then the lower.
+for (dv in list(c(1, 1, 3, 3), c(1, 3), c(1, 2), c(2, 2, 7), c(4), rep(0:19, each = 400))) {
+  for (mlt in c(FALSE, TRUE)) {
+    add_case(sprintf("mode_discrete_ties_%s_m%d", paste(head(dv, 4), collapse = "_"), mlt), "mode",
+             NNS.mode(dv, discrete = TRUE, multi = mlt),
+             scalars = list(discrete = TRUE, multi = mlt), vectors = list(x = dv))
+  }
+}
 # Equally high peaks: the single mode is the one nearest the gravity.
 eqp <- rep(0:19, each = 400)
 add_case("mode_equal_peaks", "mode", NNS.mode(eqp, discrete = FALSE, multi = FALSE),
@@ -308,9 +316,12 @@ add_dep <- function(name, x, y) {
            NNS:::NNS_dep_levels_cpp(as.numeric(x), as.numeric(y), qlab(qa)),
            vectors = list(x = x, y = y, quad_xy = qa))
   for (asym in c(FALSE, TRUE)) {
+    # The local measure takes signed square roots, so a cell term that is 0 up to
+    # rounding (1e-17) reads as up to ~3e-9.
     add_case(sprintf("dep_local_%s_a%d", name, asym), "dep_local",
              NNS:::NNS_dep_local_cpp(as.numeric(x), as.numeric(y), qlab(qa), qlab(qb), asym),
-             scalars = list(asym = asym), vectors = list(x = x, y = y, quad_xy = qa, quad_yx = qb))
+             scalars = list(asym = asym), vectors = list(x = x, y = y, quad_xy = qa, quad_yx = qb),
+             tol = 1e-8)
     d <- NNS.dep(x, y, asym = asym)
     add_case(sprintf("dep_%s_a%d", name, asym), "dep", c(d$Correlation, d$Dependence),
              scalars = list(asym = asym), vectors = list(x = x, y = y))
@@ -345,6 +356,17 @@ add_dep("discrete_ties", as.numeric(sample(-3:3, 300, TRUE)), as.numeric(sample(
 bdep <- c(rep(0, 51), rep(1, 49))
 add_dep("binary_self", bdep, bdep)
 add_dep("constant", ret[1:50], rep(1, 50))
+# Tied samples at levels where the cell means round: argument and row order don't matter.
+for (sd in c(208, 78, 487)) {
+  set.seed(sd); n <- sample(10:80, 1); tx <- sample(0:5, n, TRUE); ty <- sample(0:5, n, TRUE)
+  add_dep(sprintf("tied_%d", sd), tx, ty)
+  add_dep(sprintf("tied_%d_swap", sd), ty, tx)
+  add_dep(sprintf("tied_%d_rev", sd), rev(tx), rev(ty))
+  add_dep(sprintf("tied_%d_div10", sd), tx / 10, ty / 10)
+  add_dep(sprintf("tied_%d_1e9", sd), 1e9 + tx / 10, 1e9 + ty / 10)
+}
+hts <- 1.7e9 + seq_len(100) / 1e6
+add_dep("distinct_1.7e9", hts, -hts)
 # One cell, points on the cell mean: the degree-0 counts partition it.
 xtie <- rep(c(-1, 0, 1), 33); ytie <- rep(c(0, 1, -1, 0, -1, 1, 1, 0, -1), 11)
 add_dep_pair("ties", xtie, ytie, rep(0, 99), rep(0, 99), rep(0, 99))
@@ -542,6 +564,8 @@ add_seas("zero_mean", sz - mean(sz))
 add_seas("sine", 10 + sz)
 add_seas("sine_noisy", round(10 + sz + rnorm(96, 0, .2), 4))
 add_seas("sine_max5", 10 + sz, max_period = 5)
+add_seas("sine_1e6", 1e6 + sz)
+add_seas("sine_1e9", 1e9 + sz)
 # A modulo period beyond the scan limit is scored, not given CV(X).
 add_seas("sine_max5_mod12", 10 + sz, 12, max_period = 5)
 add_seas("sine_max5_mod12_all", 10 + sz, 12, mod_only = FALSE, max_period = 5)
