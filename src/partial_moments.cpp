@@ -10,8 +10,8 @@
 // SPDX-License-Identifier: GPL-3.0-only
 
 // ---- NNS-CORE PROVENANCE (managed by scripts/sync_adapter.py; do not hand-edit) ----
-// NNS-R-SOURCE: src/partial_moments.cpp @ de167f085f171c3a9fbf12cfc61562598850dd5a
-// NNS-R-SOURCE: src/partial_moments.h @ de167f085f171c3a9fbf12cfc61562598850dd5a
+// NNS-R-SOURCE: src/partial_moments.cpp @ 79c60272b6bf0362ddc784bfbd243e77f44697f0
+// NNS-R-SOURCE: src/partial_moments.h @ 79c60272b6bf0362ddc784bfbd243e77f44697f0
 // ---- end NNS-CORE PROVENANCE ----
 #include "nns/partial_moments.hpp"
 
@@ -47,6 +47,20 @@ inline void check_degree(double degree, const char* what = "degree") {
     throw std::invalid_argument(std::string("`") + what +
                                 "` must be a non-negative number");
   }
+}
+
+inline void check_co_lengths(std::size_t n_x, std::size_t n_y) {
+  if (n_x != n_y) throw std::invalid_argument("`x` and `y` must have the same length.");
+  if (n_x == 0) throw std::invalid_argument("`x` and `y` must not be empty.");
+}
+
+// The vectorised forms index targets modulo their lengths.
+inline void check_co_targets(std::size_t n_tx, std::size_t n_ty) {
+  if (n_tx == 0 || n_ty == 0)
+    throw std::invalid_argument("`target_x` and `target_y` must not be empty.");
+  if (n_tx != n_ty && n_tx != 1 && n_ty != 1)
+    throw std::invalid_argument(
+        "`target_x` and `target_y` must have the same length, or one of them length 1.");
 }
 
 inline double lower_component(double diff, double degree, bool degree_is_int) {
@@ -358,6 +372,7 @@ void upm_ratio_v(double degree, const double* target, std::size_t n_targets,
 double co_upm(double degree_x, double degree_y, const double* x,
               const double* y, std::size_t n_x, std::size_t n_y,
               double target_x, double target_y) {
+  check_co_lengths(n_x, n_y);
   check_degree(degree_x, "degree_x");
   check_degree(degree_y, "degree_y");
   const std::size_t max_size = (n_x > n_y ? n_x : n_y);
@@ -391,6 +406,7 @@ double co_upm(double degree_x, double degree_y, const double* x,
 double co_lpm(double degree_x, double degree_y, const double* x,
               const double* y, std::size_t n_x, std::size_t n_y,
               double target_x, double target_y) {
+  check_co_lengths(n_x, n_y);
   check_degree(degree_x, "degree_x");
   check_degree(degree_y, "degree_y");
   const std::size_t max_size = (n_x > n_y ? n_x : n_y);
@@ -424,6 +440,7 @@ double co_lpm(double degree_x, double degree_y, const double* x,
 double d_lpm(double degree_lpm, double degree_upm, const double* x,
              const double* y, std::size_t n_x, std::size_t n_y,
              double target_x, double target_y) {
+  check_co_lengths(n_x, n_y);
   check_degree(degree_lpm, "degree_lpm");
   check_degree(degree_upm, "degree_upm");
   const std::size_t max_size = (n_x > n_y ? n_x : n_y);
@@ -464,6 +481,7 @@ double d_lpm(double degree_lpm, double degree_upm, const double* x,
 double d_upm(double degree_lpm, double degree_upm, const double* x,
              const double* y, std::size_t n_x, std::size_t n_y,
              double target_x, double target_y) {
+  check_co_lengths(n_x, n_y);
   check_degree(degree_lpm, "degree_lpm");
   check_degree(degree_upm, "degree_upm");
   const std::size_t max_size = (n_x > n_y ? n_x : n_y);
@@ -489,11 +507,11 @@ double d_upm(double degree_lpm, double degree_upm, const double* x,
       if (!d_upm_0) y1 = repeat_multiplication(y1, static_cast<int>(degree_upm));
       out += x1 * y1;
     } else if (dont_use_pow_lpm && !dont_use_pow_upm) {
-      if (!d_upm_0) y1 = repeat_multiplication(y1, static_cast<int>(degree_upm));
-      out += std::pow(x1, degree_lpm) * y1;
-    } else if (dont_use_pow_upm && !dont_use_pow_lpm) {
       if (!d_lpm_0) x1 = repeat_multiplication(x1, static_cast<int>(degree_lpm));
       out += x1 * std::pow(y1, degree_upm);
+    } else if (dont_use_pow_upm && !dont_use_pow_lpm) {
+      if (!d_upm_0) y1 = repeat_multiplication(y1, static_cast<int>(degree_upm));
+      out += std::pow(x1, degree_lpm) * y1;
     } else {
       out += std::pow(x1, degree_lpm) * std::pow(y1, degree_upm);
     }
@@ -527,6 +545,8 @@ void co_lpm_v(double degree_x, double degree_y, const double* x,
               const double* target_x, std::size_t n_tx, const double* target_y,
               std::size_t n_ty, double* out, int n_threads) {
   // Validate before the parallel region: an exception must not escape a worker.
+  check_co_lengths(n_x, n_y);
+  check_co_targets(n_tx, n_ty);
   check_degree(degree_x, "degree_x");
   check_degree(degree_y, "degree_y");
   two_var_vectorized(
@@ -541,6 +561,8 @@ void co_upm_v(double degree_x, double degree_y, const double* x,
               const double* target_x, std::size_t n_tx, const double* target_y,
               std::size_t n_ty, double* out, int n_threads) {
   // Validate before the parallel region: an exception must not escape a worker.
+  check_co_lengths(n_x, n_y);
+  check_co_targets(n_tx, n_ty);
   check_degree(degree_x, "degree_x");
   check_degree(degree_y, "degree_y");
   two_var_vectorized(
@@ -555,6 +577,8 @@ void d_lpm_v(double degree_lpm, double degree_upm, const double* x,
              const double* target_x, std::size_t n_tx, const double* target_y,
              std::size_t n_ty, double* out, int n_threads) {
   // Validate before the parallel region: an exception must not escape a worker.
+  check_co_lengths(n_x, n_y);
+  check_co_targets(n_tx, n_ty);
   check_degree(degree_lpm, "degree_lpm");
   check_degree(degree_upm, "degree_upm");
   two_var_vectorized(
@@ -569,6 +593,8 @@ void d_upm_v(double degree_lpm, double degree_upm, const double* x,
              const double* target_x, std::size_t n_tx, const double* target_y,
              std::size_t n_ty, double* out, int n_threads) {
   // Validate before the parallel region: an exception must not escape a worker.
+  check_co_lengths(n_x, n_y);
+  check_co_targets(n_tx, n_ty);
   check_degree(degree_lpm, "degree_lpm");
   check_degree(degree_upm, "degree_upm");
   two_var_vectorized(

@@ -1,6 +1,6 @@
 // src/distance.cpp
 //
-// Implementation extracted from NNS NNS_distance.cpp (synced to R 13.3, de167f08; the
+// Implementation extracted from NNS NNS_distance.cpp (synced to R 13.3, 79c60272; the
 // 13.3 column-major indexing fix needs no change here). Decoupled from Rcpp.
 //
 // SPDX-License-Identifier: GPL-3.0-only
@@ -57,10 +57,7 @@ inline double var_vec(const std::vector<double>& v) {
 
 // --- Pure C++ Probability Density Functions (Replaces RMath C-API) ---
 
-// Mirrors the R C-API ::Rf_dexp(x, scale, 0): R's C-level dexp is
-// SCALE-parameterized, density = exp(-x/scale)/scale.  All call sites pass
-// 1.0/k exactly as the original Rf_dexp(r, 1.0/k, 0), which therefore
-// evaluates to k * exp(-r * k).
+// R's C-level Rf_dexp(x, scale, 0): passing scale = k gives rate 1/k, as M.reg does.
 inline double pdf_exp(double x, double scale) {
   return std::exp(-x / scale) / scale;
 }
@@ -211,7 +208,7 @@ double distance(const double* X, std::size_t l, std::size_t n,
   
   std::vector<double> exw(ll, 0.0);
   for (int i = 0; i < ll; ++i){
-    double dens = pdf_exp(static_cast<double>(i+1), 1.0/static_cast<double>(ll));
+    double dens = pdf_exp(static_cast<double>(i+1), static_cast<double>(ll));
     exw[i] = std::isfinite(dens) ? dens : 0.0;
   }
   double exsum = std::accumulate(exw.begin(), exw.end(), 0.0);
@@ -364,7 +361,7 @@ std::vector<double> distance_path_parallel(const double* RPM, std::size_t l, std
     uniW[k].assign(k, 1.0 / static_cast<double>(k));
     
     std::vector<double> ex(k);
-    for (int r = 1; r <= k; ++r) ex[r-1] = pdf_exp(static_cast<double>(r), 1.0 / static_cast<double>(k));
+    for (int r = 1; r <= k; ++r) ex[r-1] = pdf_exp(static_cast<double>(r), static_cast<double>(k));
     double exs = std::accumulate(ex.begin(), ex.end(), 0.0);
     if (exs > 0) for (double &v: ex) v /= exs; else std::fill(ex.begin(), ex.end(), 0.0);
     expW[k] = std::move(ex);
@@ -509,7 +506,7 @@ std::vector<double> distance_path_single_parallel(const double* RPM, std::size_t
   std::vector<double> uniW(k, 1.0 / static_cast<double>(k));
   
   std::vector<double> expW(k);
-  for (int r = 1; r <= k; ++r) expW[r - 1] = pdf_exp(static_cast<double>(r), 1.0 / static_cast<double>(k));
+  for (int r = 1; r <= k; ++r) expW[r - 1] = pdf_exp(static_cast<double>(r), static_cast<double>(k));
   double exs = std::accumulate(expW.begin(), expW.end(), 0.0);
   if (exs > 0.0) for (double &v : expW) v /= exs; else std::fill(expW.begin(), expW.end(), 0.0);
   

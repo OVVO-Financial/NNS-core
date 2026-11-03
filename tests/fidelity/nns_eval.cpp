@@ -23,9 +23,10 @@
 // Functions: lpm upm lpm_v upm_v lpm_ratio_v upm_ratio_v co_lpm co_upm d_lpm
 // d_upm co_lpm_v co_upm_v d_lpm_v d_upm_v clpm_nd cupm_nd dpm_nd
 // clpm_nd_batch pm_matrix gravity mode partition dep dep_matrix dep_pair
-// dep_levels dep_local distance_path distance_bulk fast_lm duplicate_column_map
-// mreg_setup mreg_predict mreg_predict_path xstar_path sd_uni seasonality
-// arma_seas_weighting.
+// dep_levels dep_local distance distance_path distance_bulk distance_path_parallel
+// distance_path_single_parallel fast_lm duplicate_column_map
+// mreg_setup mreg_predict mreg_predict_path xstar_path sd_uni sd_set
+// seasonality arma_seas_weighting.
 //
 // SPDX-License-Identifier: GPL-3.0-only
 #include "nns/nns.hpp"
@@ -248,6 +249,20 @@ std::vector<double> evaluate(const std::string& func, const Flags& f) {
                                    flag(f, "is_class"))
               : nns::distance_bulk(R.data(), R.nrow, R.ncol, yhat.data(), T.data(), T.nrow, k,
                                    flag(f, "is_class"));
+  } else if (func == "distance") {
+    const Matrix X = matrix(f, "X");
+    const std::vector<double> yhat = list(f, "yhat"), dest = list(f, "dest");
+    out.push_back(nns::distance(X.data(), X.nrow, X.ncol, yhat.data(), dest.data(),
+                                static_cast<int>(scalar(f, "k")), flag(f, "use_class")));
+  } else if (func == "distance_path_parallel" || func == "distance_path_single_parallel") {
+    const Matrix R = matrix(f, "RPM"), T = matrix(f, "Xtest");
+    const std::vector<double> yhat = list(f, "yhat");
+    const int k = static_cast<int>(scalar(f, "k"));
+    out = func == "distance_path_parallel"
+              ? nns::distance_path_parallel(R.data(), R.nrow, R.ncol, yhat.data(), T.data(),
+                                            T.nrow, k, flag(f, "is_class"))
+              : nns::distance_path_single_parallel(R.data(), R.nrow, R.ncol, yhat.data(),
+                                                   T.data(), T.nrow, k, flag(f, "is_class"));
   } else if (func == "fast_lm") {
     const std::vector<double> x = list(f, "x"), y = list(f, "y");
     const nns::FastLmResult r = nns::fast_lm(x.data(), y.data(), x.size());
@@ -309,6 +324,20 @@ std::vector<double> evaluate(const std::string& func, const Flags& f) {
       out.push_back(nns::tsd_uni(x.data(), x.size(), y.data(), y.size()));
     else
       die("sd_uni: degree must be 1, 2 or 3");
+  } else if (func == "sd_set") {
+    // Output: the efficient columns, 1-based as R's match(names, colnames(X)).
+    const Matrix X = matrix(f, "X");
+    const int degree = static_cast<int>(scalar(f, "degree"));
+    std::vector<int> idx;
+    if (degree == 1)
+      idx = nns::fsd(X.data(), X.nrow, X.ncol, flag(f, "discrete", true));
+    else if (degree == 2)
+      idx = nns::ssd(X.data(), X.nrow, X.ncol);
+    else if (degree == 3)
+      idx = nns::tsd(X.data(), X.nrow, X.ncol);
+    else
+      die("sd_set: degree must be 1, 2 or 3");
+    for (int k : idx) out.push_back(k + 1);
   } else if (func == "seasonality") {
     // Output: best period, then the periods, CVs and series CVs of all.periods.
     const std::vector<double> x = list(f, "x");

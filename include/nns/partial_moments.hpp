@@ -3,8 +3,8 @@
 // SPDX-License-Identifier: GPL-3.0-only
 
 // ---- NNS-CORE PROVENANCE (managed by scripts/sync_adapter.py; do not hand-edit) ----
-// NNS-R-SOURCE: src/partial_moments.cpp @ de167f085f171c3a9fbf12cfc61562598850dd5a
-// NNS-R-SOURCE: src/partial_moments.h @ de167f085f171c3a9fbf12cfc61562598850dd5a
+// NNS-R-SOURCE: src/partial_moments.cpp @ 79c60272b6bf0362ddc784bfbd243e77f44697f0
+// NNS-R-SOURCE: src/partial_moments.h @ 79c60272b6bf0362ddc784bfbd243e77f44697f0
 // ---- end NNS-CORE PROVENANCE ----
 #ifndef NNS_PARTIAL_MOMENTS_HPP
 #define NNS_PARTIAL_MOMENTS_HPP
@@ -24,7 +24,9 @@ struct PMMatrixResult {
 };
 
 // All degree arguments must be >= 0; every function below throws
-// std::invalid_argument for a negative or NaN degree.
+// std::invalid_argument for a negative or NaN degree. The bivariate co-moments
+// also throw unless x and y have the same nonzero length, and their _v forms
+// unless target_x and target_y are non-empty and of equal length or length 1.
 
 double lpm(double degree, double target, const double* x, std::size_t n);
 double upm(double degree, double target, const double* x, std::size_t n);
