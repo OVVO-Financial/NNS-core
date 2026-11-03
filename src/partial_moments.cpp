@@ -49,6 +49,20 @@ inline void check_degree(double degree, const char* what = "degree") {
   }
 }
 
+inline void check_co_lengths(std::size_t n_x, std::size_t n_y) {
+  if (n_x != n_y) throw std::invalid_argument("`x` and `y` must have the same length.");
+  if (n_x == 0) throw std::invalid_argument("`x` and `y` must not be empty.");
+}
+
+// The vectorised forms index targets modulo their lengths.
+inline void check_co_targets(std::size_t n_tx, std::size_t n_ty) {
+  if (n_tx == 0 || n_ty == 0)
+    throw std::invalid_argument("`target_x` and `target_y` must not be empty.");
+  if (n_tx != n_ty && n_tx != 1 && n_ty != 1)
+    throw std::invalid_argument(
+        "`target_x` and `target_y` must have the same length, or one of them length 1.");
+}
+
 inline double lower_component(double diff, double degree, bool degree_is_int) {
   if (degree == 0) return diff >= 0.0 ? 1.0 : 0.0;
   if (diff < 0.0) return 0.0;
@@ -358,6 +372,7 @@ void upm_ratio_v(double degree, const double* target, std::size_t n_targets,
 double co_upm(double degree_x, double degree_y, const double* x,
               const double* y, std::size_t n_x, std::size_t n_y,
               double target_x, double target_y) {
+  check_co_lengths(n_x, n_y);
   check_degree(degree_x, "degree_x");
   check_degree(degree_y, "degree_y");
   const std::size_t max_size = (n_x > n_y ? n_x : n_y);
@@ -391,6 +406,7 @@ double co_upm(double degree_x, double degree_y, const double* x,
 double co_lpm(double degree_x, double degree_y, const double* x,
               const double* y, std::size_t n_x, std::size_t n_y,
               double target_x, double target_y) {
+  check_co_lengths(n_x, n_y);
   check_degree(degree_x, "degree_x");
   check_degree(degree_y, "degree_y");
   const std::size_t max_size = (n_x > n_y ? n_x : n_y);
@@ -424,6 +440,7 @@ double co_lpm(double degree_x, double degree_y, const double* x,
 double d_lpm(double degree_lpm, double degree_upm, const double* x,
              const double* y, std::size_t n_x, std::size_t n_y,
              double target_x, double target_y) {
+  check_co_lengths(n_x, n_y);
   check_degree(degree_lpm, "degree_lpm");
   check_degree(degree_upm, "degree_upm");
   const std::size_t max_size = (n_x > n_y ? n_x : n_y);
@@ -464,6 +481,7 @@ double d_lpm(double degree_lpm, double degree_upm, const double* x,
 double d_upm(double degree_lpm, double degree_upm, const double* x,
              const double* y, std::size_t n_x, std::size_t n_y,
              double target_x, double target_y) {
+  check_co_lengths(n_x, n_y);
   check_degree(degree_lpm, "degree_lpm");
   check_degree(degree_upm, "degree_upm");
   const std::size_t max_size = (n_x > n_y ? n_x : n_y);
@@ -527,6 +545,8 @@ void co_lpm_v(double degree_x, double degree_y, const double* x,
               const double* target_x, std::size_t n_tx, const double* target_y,
               std::size_t n_ty, double* out, int n_threads) {
   // Validate before the parallel region: an exception must not escape a worker.
+  check_co_lengths(n_x, n_y);
+  check_co_targets(n_tx, n_ty);
   check_degree(degree_x, "degree_x");
   check_degree(degree_y, "degree_y");
   two_var_vectorized(
@@ -541,6 +561,8 @@ void co_upm_v(double degree_x, double degree_y, const double* x,
               const double* target_x, std::size_t n_tx, const double* target_y,
               std::size_t n_ty, double* out, int n_threads) {
   // Validate before the parallel region: an exception must not escape a worker.
+  check_co_lengths(n_x, n_y);
+  check_co_targets(n_tx, n_ty);
   check_degree(degree_x, "degree_x");
   check_degree(degree_y, "degree_y");
   two_var_vectorized(
@@ -555,6 +577,8 @@ void d_lpm_v(double degree_lpm, double degree_upm, const double* x,
              const double* target_x, std::size_t n_tx, const double* target_y,
              std::size_t n_ty, double* out, int n_threads) {
   // Validate before the parallel region: an exception must not escape a worker.
+  check_co_lengths(n_x, n_y);
+  check_co_targets(n_tx, n_ty);
   check_degree(degree_lpm, "degree_lpm");
   check_degree(degree_upm, "degree_upm");
   two_var_vectorized(
@@ -569,6 +593,8 @@ void d_upm_v(double degree_lpm, double degree_upm, const double* x,
              const double* target_x, std::size_t n_tx, const double* target_y,
              std::size_t n_ty, double* out, int n_threads) {
   // Validate before the parallel region: an exception must not escape a worker.
+  check_co_lengths(n_x, n_y);
+  check_co_targets(n_tx, n_ty);
   check_degree(degree_lpm, "degree_lpm");
   check_degree(degree_upm, "degree_upm");
   two_var_vectorized(

@@ -24,7 +24,9 @@ struct PMMatrixResult {
 };
 
 // All degree arguments must be >= 0; every function below throws
-// std::invalid_argument for a negative or NaN degree.
+// std::invalid_argument for a negative or NaN degree. The bivariate co-moments
+// also throw unless x and y have the same nonzero length, and their _v forms
+// unless target_x and target_y are non-empty and of equal length or length 1.
 
 double lpm(double degree, double target, const double* x, std::size_t n);
 double upm(double degree, double target, const double* x, std::size_t n);
