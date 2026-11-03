@@ -2,7 +2,7 @@
 //
 // Edge cases of nns::mode and nns::gravity (discrete keys beyond the int
 // range, tiny histograms, pathological bin counts). Expected values are the
-// NNS 13.3 results for NNS.mode(x, multi = FALSE) / NNS.gravity(x).
+// R results for NNS.mode(x, multi = FALSE) / NNS.gravity(x).
 //
 // SPDX-License-Identifier: GPL-3.0-only
 #include "nns/central_tendencies.hpp"
@@ -12,6 +12,7 @@
 #include <cmath>
 #include <cstdint>
 #include <random>
+#include <string>
 #include <vector>
 
 #include "check.hpp"
@@ -55,48 +56,34 @@ void discrete_mode_cases() {
 }
 
 // <= 3 histogram bins: the 7-tap smoother used to read past the end of the
-// count vector (ASan heap-buffer-overflow). Values are the NNS 13.3 results.
+// count vector (ASan heap-buffer-overflow). Values are the R 499f82b1 results.
 void tiny_histogram_cases() {
   const std::vector<double> a = {0, 0, 1, 1};
   const std::vector<double> ma = nns::mode(a.data(), a.size(), false, true);
   check(ma == std::vector<double>({0, 1}), "mode multi {0,0,1,1}");
-  // Two equally high bins: the one nearer the gravity (0.375).
+  // Two equally high bins equidistant from the gravity (0.5): the lower.
   check_close("mode {0,0,1,1}", mode1(a, false), 0.0, 0.0);
   check_close("mode {-1,-1,1,1}", mode1({-1, -1, 1, 1}, false), -1.0, 0.0);
   check_close("mode {0,1,1,2}", mode1({0, 1, 1, 2}, false), 1.0, 0.0);
   check_close("mode {1,2,2,5}", mode1({1, 2, 2, 5}, false), 2.0, 0.0);
   check_close("mode {1,1,1,2,9}", mode1({1, 1, 1, 2, 9}, false), 1.0, 0.0);
-  check_close("gravity {0,0,1,1}", nns::gravity(a.data(), a.size(), false), 0.375, 0.0);
+  check_close("gravity {0,0,1,1}", nns::gravity(a.data(), a.size(), false), 0.5, 0.0);
   const std::vector<double> b = {1, 1, 1, 2, 9};
-  check_close("gravity {1,1,1,2,9}", nns::gravity(b.data(), b.size(), false), 1.54375, 1e-15);
+  check_close("gravity {1,1,1,2,9}", nns::gravity(b.data(), b.size(), false), 1.575, 1e-15);
 }
 
-// Reference: the NNS 13.3 dense-histogram gravity (int64 indices), used to
-// show that shortening long runs of empty bins leaves gravity bit-identical.
+// Reference: the dense-histogram gravity (int64 indices), used to show that
+// shortening long runs of empty bins leaves gravity bit-identical.
 double dense_gravity(std::vector<double> x) {
   std::sort(x.begin(), x.end());
   const int l = static_cast<int>(x.size());
-  auto quart = [&](double& q1, double& q2, double& q3) {
-    const double l25 = l * 0.25, l50 = l * 0.5, l75 = l * 0.75;
-    if (l % 2 == 0) {
-      q1 = x[std::max(1, static_cast<int>(std::floor(l25))) - 1];
-      q2 = x[std::max(1, static_cast<int>(std::floor(l50))) - 1];
-      q3 = x[std::max(1, static_cast<int>(std::floor(l75))) - 1];
-      return;
-    }
-    auto interp = [&](double p) {
-      const int f = std::min(std::max(1, static_cast<int>(std::floor(p))), l);
-      const int c = std::min(std::max(1, static_cast<int>(std::ceil(p))), l);
-      return x[f - 1] + (p - std::floor(p)) * (x[c - 1] - x[f - 1]);
-    };
-    q1 = interp(l25);
-    const int f50 = std::min(std::max(1, static_cast<int>(std::floor(l50))), l);
-    const int c50 = std::min(std::max(1, static_cast<int>(std::ceil(l50))), l);
-    q2 = 0.5 * (x[f50 - 1] + x[c50 - 1]);
-    q3 = interp(l75);
+  auto type7 = [&](double p) {
+    const double h = (l - 1) * p;
+    const int f = static_cast<int>(std::floor(h));
+    const int c = std::min(f + 1, l - 1);
+    return x[f] + (h - f) * (x[c] - x[f]);
   };
-  double q1, q2, q3;
-  quart(q1, q2, q3);
+  const double q1 = type7(0.25), q2 = type7(0.5), q3 = type7(0.75);
   const double width = (q3 - q1) * std::pow(static_cast<double>(l), -0.5);
   const double origin = x.front();
   const std::int64_t nb =
@@ -115,15 +102,15 @@ double dense_gravity(std::vector<double> x) {
     lo = std::max<std::int64_t>(0, zc - 1);
     hi = std::min<std::int64_t>(nb - 1, zc + 1);
   }
-  long double num = 0.0L, den = 0.0L;
-  for (std::int64_t i = lo; i <= hi; ++i) {
-    num += static_cast<long double>(origin + static_cast<double>(i) * width) * counts[i];
-    den += counts[i];
-  }
+  std::int64_t a = 0, e = 0;
+  for (std::int64_t i = 0; i <= hi; ++i) (i < lo ? a : e) += counts[i];
+  e += a;
+  long double num = 0.0L;
+  for (std::int64_t t = a; t < e; ++t) num += x[t];
   long double s = 0.0L;
   for (double v : x) s += v;
   const double mu = static_cast<double>(s / x.size());
-  return 0.25 * (q2 + static_cast<double>(num / den) + mu + 0.5 * (q1 + q3));
+  return 0.25 * (q2 + static_cast<double>(num / (e - a)) + mu + 0.5 * (q1 + q3));
 }
 
 // Tight IQR plus far outliers: the full histogram has millions of bins, most
@@ -154,22 +141,71 @@ void pathological_bin_counts() {
   }
 }
 
-}  // namespace
+// Type-7 quartiles and the observation mean as the mode term. Values: R 499f82b1 NNS.gravity.
+void gravity_centre_cases() {
+  for (const std::vector<double>& v : {std::vector<double>{1, 2, 3, 4}, std::vector<double>{0, 0, 1, 1},
+                                       std::vector<double>{0, 1, 1, 3, 3, 4}}) {
+    check_close("gravity of symmetric data is its centre, n = " + std::to_string(v.size()),
+                nns::gravity(v.data(), v.size(), false), 0.5 * (v.front() + v.back()), 1e-15);
+  }
+  const std::vector<double> six = {1, 2, 3, 4, 5, 6};
+  check_close("gravity 1:6", nns::gravity(six.data(), six.size(), false), 3.125, 1e-15);
+  const std::vector<double> a = {0, 1, 1, 2, 3, 7, 8, 8, 9, 10};
+  check_close("gravity {0,1,1,2,3,7,8,8,9,10}", nns::gravity(a.data(), a.size(), false),
+              3.9812500000000002, 1e-15);
+  std::vector<double> b = {-3, -1, -1, 0, 1, 1, 3, 10};
+  check_close("gravity {-3,-1,-1,0,1,1,3,10}", nns::gravity(b.data(), b.size(), false), 0.8125, 1e-15);
+  for (double& v : b) v = -v;
+  check_close("gravity reflects", nns::gravity(b.data(), b.size(), false), -0.8125, 1e-15);
+}
 
-// Twenty equally frequent values give equally high smoothed peaks; the single
-// mode is the one nearest the gravity (9.2354492587482149), not their average.
+// Every gap wider than a bin: each value is a mode, ends included; the single one is nearest the gravity.
 void equal_peak_cases() {
   std::vector<double> x;
   for (int v = 0; v < 20; ++v) x.insert(x.end(), 400, static_cast<double>(v));
   const std::vector<double> all = nns::mode(x.data(), x.size(), false, true);
-  check(all.size() == 18 && all[8] == mode1(x, false), "equal peaks, the single mode is a peak");
-  check_close("equal peaks, R value", mode1(x, false), 8.9442719099991592, 1e-14);
+  check(all.size() == 20 && all.front() == 0.0 && all.back() == 19.0, "equal peaks, every value a mode");
+  check_close("equal peaks, R value", mode1(x, false), 9.0, 0.0);
 }
+
+void vec_close(const std::string& label, const std::vector<double>& got,
+               const std::vector<double>& want, double rel_tol) {
+  check(got.size() == want.size(), label + ": size " + std::to_string(got.size()));
+  for (std::size_t i = 0; i < got.size() && i < want.size(); ++i)
+    check_close(label + " [" + std::to_string(i) + "]", got[i], want[i], rel_tol);
+}
+
+// Values: R 499f82b1 NNS.mode(x, discrete = FALSE).
+void continuous_mode_cases() {
+  const std::vector<double> a = {1, 1, 1, 5, 5, 5, 9, 9, 9};
+  vec_close("discrete-valued modes", nns::mode(a.data(), a.size(), false, true), {1, 5, 9}, 0.0);
+  check_close("discrete-valued single mode", mode1(a, false), 5.0, 0.0);
+  const std::vector<double> b = {1, 1, 2, 2, 2, 5, 5, 9, 9, 9, 9, 12};
+  check_close("mode centred on observations", mode1(b, false), 2.5714285714285716, 1e-15);
+
+  // A spike at 0.5 on a uniform grid: peaks are centred on the observations, not bin edges.
+  std::vector<double> u;
+  for (int i = 0; i <= 999; ++i) u.push_back(i / 999.0);
+  u.insert(u.end(), 60, 0.5);
+  vec_close("spike modes", nns::mode(u.data(), u.size(), false, true),
+            {0.16616616616616617, 0.39739739739739738, 0.49905806427545557,
+             0.62862862862862867, 0.72972972972972971}, 1e-14);
+  check_close("spike mode", mode1(u, false), 0.49905806427545557, 1e-14);
+
+  // Exp(1) quantiles: the density peaks at its minimum, so the first bins hold the mode.
+  std::vector<double> e;
+  for (int i = 1; i <= 1000; ++i) e.push_back(-std::log(1.0 - (i - 0.5) / 1000.0));
+  check_close("exponential edge mode", mode1(e, false), 0.068015347644584348, 1e-13);
+}
+
+}  // namespace
 
 int main() {
   discrete_mode_cases();
   equal_peak_cases();
+  continuous_mode_cases();
   tiny_histogram_cases();
+  gravity_centre_cases();
   pathological_bin_counts();
   return nns_test::check_summary("test_central_tendencies");
 }

@@ -655,6 +655,74 @@ add_arma_w("sentinel", data.frame(Period = c(7, 14, 21), Coefficient.of.Variatio
 add_arma_w("constant", data.frame(Period = c(12, 24), Coefficient.of.Variation = 0,
                                   Variable.Coefficient.of.Variation = 0))
 
+# ---- mode: discrete-valued data, edge peaks, observation centres ----------
+# Deterministic inputs, so the RNG stream of the cases above is untouched.
+mvec <- list(
+  runs3 = c(1, 1, 1, 5, 5, 5, 9, 9, 9), runs_unequal = c(1, 1, 2, 2, 2, 5, 5, 9, 9, 9, 9, 12),
+  eq20 = rep(0:19, each = 400), spike = c((0:999) / 999, rep(0.5, 60)),
+  exp_q = -log(1 - ((1:1000) - 0.5) / 1000), grid_far = c((0:499) / 499, 40),
+  steps = rep(c(0, 0.5, 2, 2.25, 7), times = c(3, 5, 5, 2, 4))
+)
+for (nm in names(mvec)) {
+  v <- mvec[[nm]]
+  for (mlt in c(FALSE, TRUE)) {
+    add_case(sprintf("mode_cont_%s_m%d", nm, mlt), "mode", NNS.mode(v, discrete = FALSE, multi = mlt),
+             scalars = list(discrete = FALSE, multi = mlt), vectors = list(x = v))
+  }
+}
+
+# ---- gravity: type-7 quartiles and the observation mean as the mode term ----
+gvec <- c(mvec, list(
+  one_to_4 = 1:4, neg_one_to_4 = -(1:4), one_to_6 = 1:6, sym6 = c(0, 1, 1, 3, 3, 4),
+  even10 = c(0, 1, 1, 2, 3, 7, 8, 8, 9, 10), skew8 = c(-3, -1, -1, 0, 1, 1, 3, 10),
+  neg_skew8 = -c(-3, -1, -1, 0, 1, 1, 3, 10)
+))
+for (nm in names(gvec)) {
+  v <- as.numeric(gvec[[nm]])
+  for (dsc in c(FALSE, TRUE)) {
+    add_case(sprintf("gravity_cont_%s_d%d", nm, dsc), "gravity", NNS.gravity(v, discrete = dsc),
+             scalars = list(discrete = dsc), vectors = list(x = v))
+  }
+}
+
+# ---- partition "mode" reducer: the continuous mode on data finer than integers ----
+gx <- (0:199) / 199
+for (noise in c("mode", "mode_class")) {
+  for (xo in c(FALSE, TRUE)) {
+    p <- NNS:::NNS_part_cpp(gx, sin(3 * gx), if (xo) "XONLY" else NULL, NULL, 8L, FALSE, noise)
+    add_case(sprintf("partition_unit_%s_x%d", noise, xo), "partition",
+             c(p$order, qcode(p$dt$quadrant), p$regression.points$x, p$regression.points$y),
+             scalars = list(xonly = xo, obs_req = 8), vectors = list(x = gx, y = sin(3 * gx)),
+             strings = list(noise_reduction = noise))
+  }
+}
+
+# ---- parallel distance paths: the log-normal rank weight at sd(1:k) ----------
+for (k in c(2, 25)) {
+  add_case(sprintf("distance_single_parallel_k%d", k), "distance_path_single_parallel",
+           NNS:::NNS_distance_path_single_parallel_cpp(RPM, yh, Xt, as.integer(k), FALSE, 1L),
+           scalars = list(k = k, is_class = FALSE), vectors = list(yhat = yh),
+           matrices = list(RPM = RPM, Xtest = Xt))
+}
+
+# ---- M.reg setup: a column whose two boundaries are its two values has two cells ----
+# M.reg passes sort(unique(X[, j])) for a two-valued column; a third value or a
+# single observed one keeps findInterval's ids.
+Xbin <- cbind(bin = rep(c(0, 1, 1, 0, 1, 0, 0, 1), 25), z = round(seq(0.001, 1, length.out = 200)^2, 6),
+              coded = rep(c(3, -1, 3, -1, -1), 40), half = rep(c(0, 0.5, 1, 1), 50), zero = 0)
+ybin <- round(sin(1:200) + Xbin[, "bin"], 6)
+bbin <- list(c(0, 1), unique(quantile(Xbin[, "z"], seq(0, 1, 0.25), names = FALSE)), c(-1, 3), c(0, 1), c(0, 1))
+for (red in 0:3) {
+  for (cls in c(FALSE, TRUE)) {
+    yy <- if (cls) round(ybin) else ybin
+    s <- NNS:::NNS_mreg_setup_cpp(Xbin, yy, bbin, red, cls)
+    add_case(sprintf("mreg_setup_binary_r%d_c%d", red, cls), "mreg_setup", s$RPM,
+             scalars = list(reducer = red, is_class = cls),
+             vectors = list(y = yy, boundaries = unlist(bbin), boundary_lengths = lengths(bbin)),
+             matrices = list(X = Xbin))
+  }
+}
+
 body <- paste(unlist(cases), collapse = ",\n")
 json <- paste0(
   "{\n",

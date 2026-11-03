@@ -74,6 +74,15 @@ void quartiles_like_R_code(const std::vector<double>& xs, double& q1, double& q2
   }
 }
 
+// R's default quantile (type 7) of sorted xs: position 1 + (n - 1) p.
+inline double quantile_type7(const std::vector<double>& xs, double p) {
+  const int n = static_cast<int>(xs.size());
+  const double h = (n - 1) * p;
+  const int lo = static_cast<int>(std::floor(h));
+  const int hi = std::min(lo + 1, n - 1);
+  return xs[lo] + (h - lo) * (xs[hi] - xs[lo]);
+}
+
 // Minimal replacement for NNS_bin used by mode/gravity. Bins are
 // [origin + k*width, origin + (k+1)*width), k = 0 .. nbins-1, with
 // nbins = floor((max - origin) / width + 1e-12) + 1, as in NNS 13.3.
@@ -193,8 +202,10 @@ double gravity(const double* x_in, std::size_t n, bool discrete) {
   double range = std::fabs(x.back() - x.front());
   if (range == 0.0) return x.front();
   
-  double q1, q2, q3;
-  quartiles_like_R_code(x, q1, q2, q3);
+  // The floor-position median and quartiles put gravity below the centre of symmetric data.
+  const double q1 = quantile_type7(x, 0.25);
+  const double q2 = quantile_type7(x, 0.50);
+  const double q3 = quantile_type7(x, 0.75);
   
   double width = (q3 - q1) * std::pow(static_cast<double>(l), -0.5);
   if (!(width > 0.0) || !std::isfinite(width)) width = range / 128.0;
@@ -219,12 +230,14 @@ double gravity(const double* x_in, std::size_t n, bool discrete) {
     hi = std::min(lz - 1, zc + 1);
   }
   
-  long double num = 0.0L, den = 0.0L;
-  for (int i = lo; i <= hi; ++i) {
-    num += static_cast<long double>(z_names[i]) * static_cast<long double>(counts[i]);
-    den += static_cast<long double>(counts[i]);
-  }
-  double m = (den > 0.0L) ? static_cast<double>(num / den) : z_names[(lo + hi) / 2];
+  // Mean of the observations in bins lo..hi (a contiguous slice of sorted x): bin left edges sit half a bin low.
+  int a = 0;
+  for (int i = 0; i < lo; ++i) a += counts[i];
+  int e = a;
+  for (int i = lo; i <= hi; ++i) e += counts[i];
+  long double num = 0.0L;
+  for (int t = a; t < e; ++t) num += static_cast<long double>(x[t]);
+  double m = (e > a) ? static_cast<double>(num / static_cast<long double>(e - a)) : z_names[(lo + hi) / 2];
   
   double mu = mean_vec(x);
   double mid = 0.25 * (q2 + m + mu + 0.5 * (q1 + q3));
@@ -373,14 +386,76 @@ std::vector<double> mode(const double* x_in, std::size_t n, bool discrete, bool 
   quartiles_like_R_code(xnum, q1, q2, q3);
   double width = (q3 - q1) * std::pow(static_cast<double>(l), -0.5);
   if (!(width > 0.0) || !std::isfinite(width)) width = range / 128.0;
-  
+
+  // Every gap wider than a bin: smoothing would move the peaks off the values, so use their frequencies.
+  {
+    std::vector<double> vals;
+    std::vector<int> cnt;
+    for (int i = 0; i < l;) {
+      int j = i + 1;
+      while (j < l && xnum[j] == xnum[i]) ++j;
+      vals.push_back(xnum[i]);
+      cnt.push_back(j - i);
+      i = j;
+    }
+    const int k = static_cast<int>(vals.size());
+    bool coarse = k >= 2;
+    for (int i = 1; coarse && i < k; ++i) {
+      if (!(vals[i] - vals[i - 1] > width)) coarse = false;
+    }
+    if (coarse) {
+      std::vector<int> modes;
+      for (int i = 0; i < k;) {
+        int j = i + 1;
+        while (j < k && cnt[j] == cnt[i]) ++j;
+        const bool left_ok = (i == 0) || cnt[i - 1] < cnt[i];
+        const bool right_ok = (j == k) || cnt[j] < cnt[i];
+        if (left_ok && right_ok) for (int t = i; t < j; ++t) modes.push_back(t);
+        i = j;
+      }
+      if (multi) {
+        std::vector<double> out;
+        out.reserve(modes.size());
+        for (int t : modes) out.push_back(vals[t]);
+        return out;
+      }
+      // Equally frequent modes: nearest the gravity, then the lower value.
+      int top = 0;
+      for (int t : modes) top = std::max(top, cnt[t]);
+      int n_top = 0, only = -1;
+      for (int t : modes) {
+        if (cnt[t] == top) { ++n_top; only = t; }
+      }
+      if (n_top == 1) return {vals[only]};
+      const double g = gravity(xnum.data(), xnum.size(), false);
+      double best_c = kNaN, best_d = std::numeric_limits<double>::infinity();
+      for (int t : modes) {
+        if (cnt[t] != top) continue;
+        const double dist = std::fabs(vals[t] - g);
+        if (dist < best_d) { best_d = dist; best_c = vals[t]; }
+      }
+      return {best_c};
+    }
+  }
+
   std::vector<double> z_names;
   std::vector<int> counts;
-  if (width <= 0.0 || !std::isfinite(width)) width = range / 128.0;
   simple_bin_counts(xnum, width, xnum.front(), z_names, counts);
   
   const int lz = static_cast<int>(counts.size());
   if (lz == 0) return {kNaN};
+
+  // Centre on the observations in bins lo..hi, a slice of sorted xnum; bin left edges sit below the data.
+  std::vector<int> start(lz + 1, 0);
+  for (int b = 0; b < lz; ++b) start[b + 1] = start[b] + counts[b];
+  auto obs_centre = [&](int lo, int hi) -> double {
+    const int a = start[lo], e = start[hi + 1];
+    if (e <= a) return z_names[lo];
+    if (xnum[a] == xnum[e - 1]) return xnum[a];
+    long double s = 0.0L;
+    for (int t = a; t < e; ++t) s += static_cast<long double>(xnum[t]);
+    return static_cast<double>(s / static_cast<long double>(e - a));
+  };
   
   int maxc = 0; 
   for (int c : counts) if (c > maxc) maxc = c;
@@ -392,16 +467,24 @@ std::vector<double> mode(const double* x_in, std::size_t n, bool discrete, bool 
   std::vector<int> peak_idx; 
   peak_idx.reserve(lz);
   
-  for (int i = 3; i <= lz - 4; ++i) {
-    double ci = cs[i];
+  // Near an end a peak must be the tallest bin: a density may peak at its minimum, a lone extreme value not.
+  const double cs_max = *std::max_element(cs.begin(), cs.end());
+  for (int i = 0; i < lz && lz >= 7; ++i) {
+    const double ci = cs[i];
     if (ci <= 0.0) continue;
+    if ((i < 3 || i > lz - 4) && ci < cs_max) continue;
     
-    double Ls = std::max(std::max(cs[i - 1], cs[i - 2]), cs[i - 3]);
-    double Rs = std::max(std::max(cs[i + 1], cs[i + 2]), cs[i + 3]);
+    double Ls = -std::numeric_limits<double>::infinity();
+    double Rs = -std::numeric_limits<double>::infinity();
+    for (int d = 1; d <= 3; ++d) {
+      if (i - d >= 0) Ls = std::max(Ls, cs[i - d]);
+      if (i + d < lz) Rs = std::max(Rs, cs[i + d]);
+    }
     if (!(ci > Ls + MARGIN && ci > Rs + MARGIN)) continue;
     
-    double curv = cs[i - 1] - 2.0 * cs[i] + cs[i + 1];
-    if (!(curv < 0.0)) continue;
+    const double left = (i > 0) ? cs[i - 1] : ((i + 1 < lz) ? cs[i + 1] : ci);
+    const double right = (i + 1 < lz) ? cs[i + 1] : ((i > 0) ? cs[i - 1] : ci);
+    if (!(left - 2.0 * ci + right < 0.0)) continue;
     
     peak_idx.push_back(i);
   }
@@ -419,17 +502,8 @@ std::vector<double> mode(const double* x_in, std::size_t n, bool discrete, bool 
     if (!kept.empty()) {
       std::vector<double> centers(kept.size());
       for (std::size_t t = 0; t < kept.size(); ++t) {
-        int zc = kept[t];
-        int lo = std::max(0, zc - 3);
-        int hi = std::min(lz - 1, zc + 3);
-        long double num = 0.0L, den = 0.0L;
-        for (int j = lo; j <= hi; ++j) {
-          if (std::abs(j - zc) <= 3) {
-            num += static_cast<long double>(z_names[j]) * static_cast<long double>(counts[j]);
-            den += static_cast<long double>(counts[j]);
-          }
-        }
-        centers[t] = (den > 0.0L) ? static_cast<double>(num / den) : z_names[zc];
+        const int zc = kept[t];
+        centers[t] = obs_centre(std::max(0, zc - 3), std::min(lz - 1, zc + 3));
       }
       
       if (multi) {
@@ -459,7 +533,7 @@ std::vector<double> mode(const double* x_in, std::size_t n, bool discrete, bool 
     if (multi) {
       std::vector<double> out;
       out.reserve(ties);
-      for (int i = 0; i < lz; ++i) if (counts[i] == maxc) out.push_back(z_names[i]);
+      for (int i = 0; i < lz; ++i) if (counts[i] == maxc) out.push_back(obs_centre(i, i));
       std::sort(out.begin(), out.end());
       return out;
     } else {
@@ -468,8 +542,9 @@ std::vector<double> mode(const double* x_in, std::size_t n, bool discrete, bool 
       double best_c = kNaN, best_d = std::numeric_limits<double>::infinity();
       for (int i = 0; i < lz; ++i) {
         if (counts[i] != maxc) continue;
-        const double dist = std::fabs(z_names[i] - g);
-        if (dist < best_d || (dist == best_d && z_names[i] < best_c)) { best_d = dist; best_c = z_names[i]; }
+        const double c = obs_centre(i, i);
+        const double dist = std::fabs(c - g);
+        if (dist < best_d || (dist == best_d && c < best_c)) { best_d = dist; best_c = c; }
       }
       return {best_c};
     }
@@ -477,17 +552,7 @@ std::vector<double> mode(const double* x_in, std::size_t n, bool discrete, bool 
   
   int zc = 0; 
   for (int i = 0; i < lz; ++i) if (counts[i] == maxc) { zc = i; break; }
-  
-  int lo = std::max(0, zc - 1);
-  int hi = std::min(lz - 1, zc + 1);
-  long double num = 0.0L, den = 0.0L;
-  for (int j = lo; j <= hi; ++j) {
-    num += static_cast<long double>(z_names[j]) * static_cast<long double>(counts[j]);
-    den += static_cast<long double>(counts[j]);
-  }
-  
-  double finalv = (den > 0.0L) ? static_cast<double>(num / den) : z_names[zc];
-  return {finalv};
+  return {obs_centre(std::max(0, zc - 1), std::min(lz - 1, zc + 1))};
 }
 
 } // namespace nns

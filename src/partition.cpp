@@ -1,6 +1,6 @@
 // src/partition.cpp
 //
-// Pure C++ port of NNS NNS_part.cpp (synced to R 13.3, 79c60272). Decoupled from Rcpp.
+// Pure C++ port of NNS NNS_part.cpp (synced to R 13.3, 499f82b1). Decoupled from Rcpp.
 //
 // This file preserves the original NNS_part_cpp semantics:
 //   - arguments: x, y, type, order_in, obs_req, min_obs_stop,
@@ -80,6 +80,12 @@ struct Agg {
     return m.empty() ? kNaN : m[0];
   }
 
+  // Regression cells take the continuous mode: the discrete one rounds to integers.
+  double mode_cont_single(const std::vector<double>& v) const {
+    const std::vector<double> m = nns::mode(v.data(), v.size(), false, false);
+    return m.empty() ? kNaN : m[0];
+  }
+
   double gravity_cont(const std::vector<double>& v, bool discrete = false) const {
     return nns::gravity(v.data(), v.size(), discrete);
   }
@@ -87,7 +93,7 @@ struct Agg {
   double for_x(const std::vector<double>& v) const {
     if (noise == "mean") return mean_no_na(v);
     if (noise == "median") return median_no_na(v);
-    if (noise == "mode") return mode_disc_single(v);
+    if (noise == "mode") return mode_cont_single(v);
     if (noise == "mode_class") return gravity_cont(v, false);
     return gravity_cont(v, false);
   }
@@ -95,7 +101,7 @@ struct Agg {
   double for_y(const std::vector<double>& v) const {
     if (noise == "mean") return mean_no_na(v);
     if (noise == "median") return median_no_na(v);
-    if (noise == "mode") return mode_disc_single(v);
+    if (noise == "mode") return mode_cont_single(v);
     if (noise == "mode_class") return mode_disc_single(v);
     return gravity_cont(v, false);
   }

@@ -1,6 +1,6 @@
 // src/dependence.cpp
 //
-// Implementation extracted from NNS NNS_dep.cpp (synced to R 13.3, 79c60272),
+// Implementation extracted from NNS NNS_dep.cpp (synced to R 13.3, 499f82b1),
 // plus the NNS.dep / NNS.dep.matrix drivers that build the partitions with
 // nns::partition as R's native path does. Decoupled from Rcpp.
 //

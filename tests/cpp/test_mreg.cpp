@@ -163,7 +163,7 @@ int main() {
   const nns::MregSetupResult sm = nns::mreg_setup(X.data(), 5, 2, y.data(), bounds, nns::kMregMedian, false);
   check_close("setup median y group 2", sm.rpm[2 * 2 + 1], 10.0, 0.0);
   // "mode" reduces numeric columns with NNS.mode, not the most frequent value
-  // (1 for y). R e1068620: NNS:::NNS_mreg_setup_cpp(X, y, list(c(0, 1),
+  // (1 for y). R 499f82b1: NNS:::NNS_mreg_setup_cpp(X, y, list(c(0, 1),
   // c(0, 2)), 2L, is_class).
   const std::vector<double> Xo = {.1, .2, .3, .4, .5, .6, .7, 1, 1, 1, 1, 1, 1, 1};
   const std::vector<double> yo = {1, 1, 5, 6, 7, 8, 9};
@@ -172,8 +172,39 @@ int main() {
     const nns::MregSetupResult so =
         nns::mreg_setup(Xo.data(), 7, 2, yo.data(), bo, nns::kMregMode, is_cls);
     check(so.n_groups == 1, "setup mode shape");
-    check_close("setup mode x1", so.rpm[0], 0.49686269665968863, 1e-12);
-    check_close("setup mode y", so.rpm[2], is_cls ? 1.0 : 5.7245559126153402, 1e-12);
+    check_close("setup mode x1", so.rpm[0], 0.15000000000000002, 1e-12);
+    check_close("setup mode y", so.rpm[2], is_cls ? 1.0 : 7.0, 1e-12);
+  }
+
+  // A column whose two boundaries are its two observed values has two cells; the upper
+  // value is not folded into the first by rightmost.closed. R 499f82b1 NNS_mreg_setup_cpp.
+  {
+    const std::vector<double> Xb = {0, 1, 1, 0, 1, 0, 0, 1, .1, .2, .3, .4, .6, .7, .8, .9};
+    const std::vector<double> yb = {1, 2, 3, 4, 5, 6, 7, 8};
+    const nns::MregSetupResult sb =
+        nns::mreg_setup(Xb.data(), 8, 2, yb.data(), {{0, 1}, {0, .5, 1}}, nns::kMregMean, false);
+    check(sb.ids == std::vector<std::string>({"1.1", "2.1", "2.1", "1.1", "2.2", "1.2", "1.2", "2.2"}),
+          "binary column ids");
+    check(sb.row_ids == std::vector<std::string>({"1.1", "1.2", "2.1", "2.2"}), "binary column row ids");
+    const std::vector<double> want = {0, 0, 1, 1, .25, .75, .25, .75, 2.5, 6.5, 2.5, 6.5};
+    check(sb.rpm.size() == want.size(), "binary column rpm size");
+    for (std::size_t k = 0; k < want.size() && k < sb.rpm.size(); ++k)
+      check_close("binary column rpm " + std::to_string(k), sb.rpm[k], want[k], 1e-15);
+
+    const std::vector<double> one = {1, 2, 3, 4, 5};
+    const std::vector<double> coded = {3, -1, 3, -1, 3};
+    const nns::MregSetupResult sc = nns::mreg_setup(coded.data(), 5, 1, one.data(), {{-1, 3}}, nns::kMregMean, false);
+    check(sc.ids == std::vector<std::string>({"2", "1", "2", "1", "2"}), "two-valued column coded -1/3");
+    // A third value, or only one of the two observed, keeps findInterval's ids.
+    const std::vector<double> half = {0, 1, .5, 1, 0};
+    const nns::MregSetupResult sh = nns::mreg_setup(half.data(), 5, 1, one.data(), {{0, 1}}, nns::kMregMean, false);
+    check(sh.ids == std::vector<std::string>(5, "1"), "third value keeps interval ids");
+    const std::vector<double> zeros = {0, 0, 0, 0};
+    const nns::MregSetupResult sz = nns::mreg_setup(zeros.data(), 4, 1, one.data(), {{0, 1}}, nns::kMregMean, false);
+    check(sz.ids == std::vector<std::string>(4, "1"), "one observed value keeps interval ids");
+    const std::vector<double> b3 = {0, 1, 1, 0};
+    const nns::MregSetupResult s3 = nns::mreg_setup(b3.data(), 4, 1, one.data(), {{0, .5, 1}}, nns::kMregMean, false);
+    check(s3.ids == std::vector<std::string>({"1", "2", "2", "1"}), "three boundaries keep interval ids");
   }
 
   // duplicate_column_map: first identical column (0-based), NaN never matches.

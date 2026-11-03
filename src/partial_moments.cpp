@@ -10,8 +10,8 @@
 // SPDX-License-Identifier: GPL-3.0-only
 
 // ---- NNS-CORE PROVENANCE (managed by scripts/sync_adapter.py; do not hand-edit) ----
-// NNS-R-SOURCE: src/partial_moments.cpp @ 79c60272b6bf0362ddc784bfbd243e77f44697f0
-// NNS-R-SOURCE: src/partial_moments.h @ 79c60272b6bf0362ddc784bfbd243e77f44697f0
+// NNS-R-SOURCE: src/partial_moments.cpp @ 499f82b1d20b984a35d39b0a11c1a20c68ba029a
+// NNS-R-SOURCE: src/partial_moments.h @ 499f82b1d20b984a35d39b0a11c1a20c68ba029a
 // ---- end NNS-CORE PROVENANCE ----
 #include "nns/partial_moments.hpp"
 
