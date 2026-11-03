@@ -1,7 +1,7 @@
 // tests/cpp/test_partition.cpp
 //
 // NNS.part treats +-Inf as values (R 13.2, complete_case_value = !ISNAN).
-// Expected labels: R 13.3
+// Expected labels: R 499f82b1
 //   x <- c(1:20, Inf, -Inf); y <- c(20:1, 5, 7)
 //   NNS:::NNS_part_cpp(x, y, NULL, 2L, 8L, FALSE, "off")$dt$quadrant
 //
@@ -30,8 +30,8 @@ int main() {
   const nns::PartitionResult r =
       nns::partition(x.data(), y.data(), x.size(), std::nullopt, 2, 8, false, "off");
   const std::vector<std::string> want = {
-      "q22", "q22", "q22", "q22", "q21", "q23", "q23", "q23", "q23", "q1", "q1",
-      "q32", "q32", "q32", "q32", "q31", "q33", "q33", "q33", "q33", "q31", "q4"};
+      "q22", "q22", "q22", "q22", "q22", "q23", "q23", "q23", "q23", "q23", "q1",
+      "q32", "q32", "q32", "q32", "q34", "q33", "q33", "q33", "q33", "q33", "q4"};
   check(r.dt.size() == want.size(), "row count");
   for (std::size_t i = 0; i < want.size() && i < r.dt.size(); ++i)
     check(r.dt[i].quadrant == want[i], "quadrant row " + std::to_string(i + 1) + ": got " +

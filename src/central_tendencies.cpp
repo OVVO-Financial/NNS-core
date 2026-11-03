@@ -74,6 +74,15 @@ void quartiles_like_R_code(const std::vector<double>& xs, double& q1, double& q2
   }
 }
 
+// R's default quantile (type 7) of sorted xs: position 1 + (n - 1) p.
+inline double quantile_type7(const std::vector<double>& xs, double p) {
+  const int n = static_cast<int>(xs.size());
+  const double h = (n - 1) * p;
+  const int lo = static_cast<int>(std::floor(h));
+  const int hi = std::min(lo + 1, n - 1);
+  return xs[lo] + (h - lo) * (xs[hi] - xs[lo]);
+}
+
 // Minimal replacement for NNS_bin used by mode/gravity. Bins are
 // [origin + k*width, origin + (k+1)*width), k = 0 .. nbins-1, with
 // nbins = floor((max - origin) / width + 1e-12) + 1, as in NNS 13.3.
@@ -193,8 +202,10 @@ double gravity(const double* x_in, std::size_t n, bool discrete) {
   double range = std::fabs(x.back() - x.front());
   if (range == 0.0) return x.front();
   
-  double q1, q2, q3;
-  quartiles_like_R_code(x, q1, q2, q3);
+  // The floor-position median and quartiles put gravity below the centre of symmetric data.
+  const double q1 = quantile_type7(x, 0.25);
+  const double q2 = quantile_type7(x, 0.50);
+  const double q3 = quantile_type7(x, 0.75);
   
   double width = (q3 - q1) * std::pow(static_cast<double>(l), -0.5);
   if (!(width > 0.0) || !std::isfinite(width)) width = range / 128.0;
@@ -219,12 +230,14 @@ double gravity(const double* x_in, std::size_t n, bool discrete) {
     hi = std::min(lz - 1, zc + 1);
   }
   
-  long double num = 0.0L, den = 0.0L;
-  for (int i = lo; i <= hi; ++i) {
-    num += static_cast<long double>(z_names[i]) * static_cast<long double>(counts[i]);
-    den += static_cast<long double>(counts[i]);
-  }
-  double m = (den > 0.0L) ? static_cast<double>(num / den) : z_names[(lo + hi) / 2];
+  // Mean of the observations in bins lo..hi (a contiguous slice of sorted x): bin left edges sit half a bin low.
+  int a = 0;
+  for (int i = 0; i < lo; ++i) a += counts[i];
+  int e = a;
+  for (int i = lo; i <= hi; ++i) e += counts[i];
+  long double num = 0.0L;
+  for (int t = a; t < e; ++t) num += static_cast<long double>(x[t]);
+  double m = (e > a) ? static_cast<double>(num / static_cast<long double>(e - a)) : z_names[(lo + hi) / 2];
   
   double mu = mean_vec(x);
   double mid = 0.25 * (q2 + m + mu + 0.5 * (q1 + q3));

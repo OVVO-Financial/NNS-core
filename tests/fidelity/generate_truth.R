@@ -671,6 +671,20 @@ for (nm in names(mvec)) {
   }
 }
 
+# ---- gravity: type-7 quartiles and the observation mean as the mode term ----
+gvec <- c(mvec, list(
+  one_to_4 = 1:4, neg_one_to_4 = -(1:4), one_to_6 = 1:6, sym6 = c(0, 1, 1, 3, 3, 4),
+  even10 = c(0, 1, 1, 2, 3, 7, 8, 8, 9, 10), skew8 = c(-3, -1, -1, 0, 1, 1, 3, 10),
+  neg_skew8 = -c(-3, -1, -1, 0, 1, 1, 3, 10)
+))
+for (nm in names(gvec)) {
+  v <- as.numeric(gvec[[nm]])
+  for (dsc in c(FALSE, TRUE)) {
+    add_case(sprintf("gravity_cont_%s_d%d", nm, dsc), "gravity", NNS.gravity(v, discrete = dsc),
+             scalars = list(discrete = dsc), vectors = list(x = v))
+  }
+}
+
 body <- paste(unlist(cases), collapse = ",\n")
 json <- paste0(
   "{\n",

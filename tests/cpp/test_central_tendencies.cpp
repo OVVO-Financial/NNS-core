@@ -2,7 +2,7 @@
 //
 // Edge cases of nns::mode and nns::gravity (discrete keys beyond the int
 // range, tiny histograms, pathological bin counts). Expected values are the
-// NNS 13.3 results for NNS.mode(x, multi = FALSE) / NNS.gravity(x).
+// R results for NNS.mode(x, multi = FALSE) / NNS.gravity(x).
 //
 // SPDX-License-Identifier: GPL-3.0-only
 #include "nns/central_tendencies.hpp"
@@ -56,48 +56,34 @@ void discrete_mode_cases() {
 }
 
 // <= 3 histogram bins: the 7-tap smoother used to read past the end of the
-// count vector (ASan heap-buffer-overflow). Values are the NNS 13.3 results.
+// count vector (ASan heap-buffer-overflow). Values are the R 499f82b1 results.
 void tiny_histogram_cases() {
   const std::vector<double> a = {0, 0, 1, 1};
   const std::vector<double> ma = nns::mode(a.data(), a.size(), false, true);
   check(ma == std::vector<double>({0, 1}), "mode multi {0,0,1,1}");
-  // Two equally high bins: the one nearer the gravity (0.375).
+  // Two equally high bins equidistant from the gravity (0.5): the lower.
   check_close("mode {0,0,1,1}", mode1(a, false), 0.0, 0.0);
   check_close("mode {-1,-1,1,1}", mode1({-1, -1, 1, 1}, false), -1.0, 0.0);
   check_close("mode {0,1,1,2}", mode1({0, 1, 1, 2}, false), 1.0, 0.0);
   check_close("mode {1,2,2,5}", mode1({1, 2, 2, 5}, false), 2.0, 0.0);
   check_close("mode {1,1,1,2,9}", mode1({1, 1, 1, 2, 9}, false), 1.0, 0.0);
-  check_close("gravity {0,0,1,1}", nns::gravity(a.data(), a.size(), false), 0.375, 0.0);
+  check_close("gravity {0,0,1,1}", nns::gravity(a.data(), a.size(), false), 0.5, 0.0);
   const std::vector<double> b = {1, 1, 1, 2, 9};
-  check_close("gravity {1,1,1,2,9}", nns::gravity(b.data(), b.size(), false), 1.54375, 1e-15);
+  check_close("gravity {1,1,1,2,9}", nns::gravity(b.data(), b.size(), false), 1.575, 1e-15);
 }
 
-// Reference: the NNS 13.3 dense-histogram gravity (int64 indices), used to
-// show that shortening long runs of empty bins leaves gravity bit-identical.
+// Reference: the dense-histogram gravity (int64 indices), used to show that
+// shortening long runs of empty bins leaves gravity bit-identical.
 double dense_gravity(std::vector<double> x) {
   std::sort(x.begin(), x.end());
   const int l = static_cast<int>(x.size());
-  auto quart = [&](double& q1, double& q2, double& q3) {
-    const double l25 = l * 0.25, l50 = l * 0.5, l75 = l * 0.75;
-    if (l % 2 == 0) {
-      q1 = x[std::max(1, static_cast<int>(std::floor(l25))) - 1];
-      q2 = x[std::max(1, static_cast<int>(std::floor(l50))) - 1];
-      q3 = x[std::max(1, static_cast<int>(std::floor(l75))) - 1];
-      return;
-    }
-    auto interp = [&](double p) {
-      const int f = std::min(std::max(1, static_cast<int>(std::floor(p))), l);
-      const int c = std::min(std::max(1, static_cast<int>(std::ceil(p))), l);
-      return x[f - 1] + (p - std::floor(p)) * (x[c - 1] - x[f - 1]);
-    };
-    q1 = interp(l25);
-    const int f50 = std::min(std::max(1, static_cast<int>(std::floor(l50))), l);
-    const int c50 = std::min(std::max(1, static_cast<int>(std::ceil(l50))), l);
-    q2 = 0.5 * (x[f50 - 1] + x[c50 - 1]);
-    q3 = interp(l75);
+  auto type7 = [&](double p) {
+    const double h = (l - 1) * p;
+    const int f = static_cast<int>(std::floor(h));
+    const int c = std::min(f + 1, l - 1);
+    return x[f] + (h - f) * (x[c] - x[f]);
   };
-  double q1, q2, q3;
-  quart(q1, q2, q3);
+  const double q1 = type7(0.25), q2 = type7(0.5), q3 = type7(0.75);
   const double width = (q3 - q1) * std::pow(static_cast<double>(l), -0.5);
   const double origin = x.front();
   const std::int64_t nb =
@@ -116,15 +102,15 @@ double dense_gravity(std::vector<double> x) {
     lo = std::max<std::int64_t>(0, zc - 1);
     hi = std::min<std::int64_t>(nb - 1, zc + 1);
   }
-  long double num = 0.0L, den = 0.0L;
-  for (std::int64_t i = lo; i <= hi; ++i) {
-    num += static_cast<long double>(origin + static_cast<double>(i) * width) * counts[i];
-    den += counts[i];
-  }
+  std::int64_t a = 0, e = 0;
+  for (std::int64_t i = 0; i <= hi; ++i) (i < lo ? a : e) += counts[i];
+  e += a;
+  long double num = 0.0L;
+  for (std::int64_t t = a; t < e; ++t) num += x[t];
   long double s = 0.0L;
   for (double v : x) s += v;
   const double mu = static_cast<double>(s / x.size());
-  return 0.25 * (q2 + static_cast<double>(num / den) + mu + 0.5 * (q1 + q3));
+  return 0.25 * (q2 + static_cast<double>(num / (e - a)) + mu + 0.5 * (q1 + q3));
 }
 
 // Tight IQR plus far outliers: the full histogram has millions of bins, most
@@ -153,6 +139,24 @@ void pathological_bin_counts() {
           "gravity/mode near 5 for scale " + std::to_string(scale));
     check(secs < 1.0, "pathological binning finishes quickly");
   }
+}
+
+// Type-7 quartiles and the observation mean as the mode term. Values: R 499f82b1 NNS.gravity.
+void gravity_centre_cases() {
+  for (const std::vector<double>& v : {std::vector<double>{1, 2, 3, 4}, std::vector<double>{0, 0, 1, 1},
+                                       std::vector<double>{0, 1, 1, 3, 3, 4}}) {
+    check_close("gravity of symmetric data is its centre, n = " + std::to_string(v.size()),
+                nns::gravity(v.data(), v.size(), false), 0.5 * (v.front() + v.back()), 1e-15);
+  }
+  const std::vector<double> six = {1, 2, 3, 4, 5, 6};
+  check_close("gravity 1:6", nns::gravity(six.data(), six.size(), false), 3.125, 1e-15);
+  const std::vector<double> a = {0, 1, 1, 2, 3, 7, 8, 8, 9, 10};
+  check_close("gravity {0,1,1,2,3,7,8,8,9,10}", nns::gravity(a.data(), a.size(), false),
+              3.9812500000000002, 1e-15);
+  std::vector<double> b = {-3, -1, -1, 0, 1, 1, 3, 10};
+  check_close("gravity {-3,-1,-1,0,1,1,3,10}", nns::gravity(b.data(), b.size(), false), 0.8125, 1e-15);
+  for (double& v : b) v = -v;
+  check_close("gravity reflects", nns::gravity(b.data(), b.size(), false), -0.8125, 1e-15);
 }
 
 // Every gap wider than a bin: each value is a mode, ends included; the single one is nearest the gravity.
@@ -201,6 +205,7 @@ int main() {
   equal_peak_cases();
   continuous_mode_cases();
   tiny_histogram_cases();
+  gravity_centre_cases();
   pathological_bin_counts();
   return nns_test::check_summary("test_central_tendencies");
 }

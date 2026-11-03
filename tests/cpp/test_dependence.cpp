@@ -1,6 +1,6 @@
 // tests/cpp/test_dependence.cpp
 //
-// NNS.dep and its kernels against R de167f08: dep / dep_matrix (NNS.dep),
+// NNS.dep and its kernels against R 499f82b1: dep / dep_matrix (NNS.dep),
 // dep_pair (NNS_dep_pair_cpp) on hand-made cells, dep_levels and dep_local.
 //
 // SPDX-License-Identifier: GPL-3.0-only
@@ -50,35 +50,34 @@ int main() {
     neg_x[i - 1] = -x[i - 1];
     neg_y[i - 1] = -y[i - 1];
   }
-  const double r_xy = 0.20162838991094528, d_xy = 0.77708974213677307;
+  const double r_xy = 0.74654375385431426, d_xy = 0.74654375385431426;
   check_result("dep(x, y)", nns::dep(x.data(), y.data(), 80), r_xy, d_xy);
   check_result("dep(x, y) asym", nns::dep(x.data(), y.data(), 80, true), r_xy, d_xy);
   // Symmetric: the same three partitions whichever way round; -y flips the sign.
   check_result("dep(y, x)", nns::dep(y.data(), x.data(), 80), r_xy, d_xy);
   check_result("dep(x, -y)", nns::dep(x.data(), neg_y.data(), 80), -r_xy, d_xy);
-  // -x moves the mean splits of x, so R gives a different value.
-  check_result("dep(-x, y)", nns::dep(neg_x.data(), y.data(), 80), -0.17944931042143974,
-               0.75014070202643035);
+  // -x moves the gravity splits of x, so R gives a different value.
+  check_result("dep(-x, y)", nns::dep(neg_x.data(), y.data(), 80), -0.17944931042143963,
+               0.75014070202643024);
 
   std::vector<double> X = x;
   X.insert(X.end(), y.begin(), y.end());
   X.insert(X.end(), z.begin(), z.end());
   const nns::DepMatrixResult m = nns::dep_matrix(X.data(), 80, 3, false, 1);
-  const std::vector<double> mc = {1, r_xy, 0.15198594271078439, r_xy, 1, 0.13104291789955438,
-                                  0.15198594271078439, 0.13104291789955438, 1};
-  const std::vector<double> md = {1, d_xy, 0.28860025468055317, d_xy, 1, 0.13104291789955438,
-                                  0.28860025468055317, 0.13104291789955438, 1};
+  const std::vector<double> mc = {1, r_xy, 0.075618087484626714, r_xy, 1, 0.0069948492176366058,
+                                  0.075618087484626714, 0.0069948492176366058, 1};
+  const std::vector<double> md = {1, d_xy, 0.20434399892988306, d_xy, 1, 0.10254377270875774,
+                                  0.20434399892988306, 0.10254377270875774, 1};
   for (std::size_t k = 0; k < 9; ++k) {
     check_close("matrix correlation " + std::to_string(k), m.correlation[k], mc[k], kTol);
     check_close("matrix dependence " + std::to_string(k), m.dependence[k], md[k], kTol);
   }
   // asym: entry [i, j] is dep(column i, column j, asym = TRUE).
   const nns::DepMatrixResult ma = nns::dep_matrix(X.data(), 80, 3, true, 2);
-  const std::vector<double> ac = {1, 0.74654375385431393, 0.15198594271078439, r_xy, 1,
-                                  0.13104291789955438, -0.097324036522073221,
-                                  -0.03592012003487987, 1};
-  const std::vector<double> ad = {1, 0.74654375385431393, 0.28860025468055317, d_xy, 1,
-                                  0.13104291789955438, 0.14257708926470505, 0.03592012003487987, 1};
+  const std::vector<double> ac = {1, 0.74654375385431393, -0.086388021856362518, r_xy, 1, 0,
+                                  -0.11435954175833232, 0, 1};
+  const std::vector<double> ad = {1, 0.74654375385431393, 0.16803718110241508, d_xy, 1, 0,
+                                  0.1716769006516293, 0, 1};
   for (std::size_t k = 0; k < 9; ++k) {
     check_close("asym matrix correlation " + std::to_string(k), ma.correlation[k], ac[k], kTol);
     check_close("asym matrix dependence " + std::to_string(k), ma.dependence[k], ad[k], kTol);
@@ -103,7 +102,7 @@ int main() {
   const std::vector<double> tx8 = {2, 1, 0, 0, 4, 2, 2, 2, 0, 4, 2, 1, 2, 4, 2, 0, 1, 4, 3, 1, 4, 4};
   const std::vector<double> ty8 = {3, 4, 4, 3, 2, 3, 5, 0, 1, 3, 1, 3, 2, 4, 0, 3, 2, 2, 4, 2, 3, 3};
   const std::size_t n8 = tx8.size();
-  const double r8 = -0.18902250695448056;
+  const double r8 = -0.18989026648936866;
   std::vector<double> rx8(tx8.rbegin(), tx8.rend()), ry8(ty8.rbegin(), ty8.rend());
   std::vector<double> dx8(n8), dy8(n8), hx8(n8), hy8(n8);
   for (std::size_t i = 0; i < n8; ++i) {
@@ -116,9 +115,8 @@ int main() {
   check_result("tied, swapped", nns::dep(ty8.data(), tx8.data(), n8), r8, -r8);
   check_result("tied, rows reversed", nns::dep(rx8.data(), ry8.data(), n8), r8, -r8);
   check_result("tied / 10", nns::dep(dx8.data(), dy8.data(), n8), r8, -r8);
-  // At 1e9 the partition's mean splits round differently: R gives 0.1666, not -0.189.
-  check_result("tied / 10 + 1e9", nns::dep(hx8.data(), hy8.data(), n8), 0.16659666150199048,
-               0.16659666150199048);
+  check_result("tied / 10 + 1e9", nns::dep(hx8.data(), hy8.data(), n8), -0.18989022573686976,
+               0.18989022573686976);
   // Distinct values at a high level are not ties.
   std::vector<double> ts(100), nts(100);
   for (int i = 0; i < 100; ++i) {
@@ -158,14 +156,14 @@ int main() {
   const std::vector<std::string> qb =
       nns::partition(y.data(), x.data(), 80, std::string("XONLY"), 7, 10, false, "off", true).quadrant;
   const std::vector<double> lv = nns::dep_levels(x.data(), y.data(), 80, qa);
-  const std::vector<double> want = {0.74654375385431404, 0.77708974213677307, 0.49841564287980855,
-                                    0.23240655071524363, 0.18649740880281743};
+  const std::vector<double> want = {0.74654375385431404, 0.69123054502417314, 0.48542447845329173,
+                                    0.37834727124745682, 0.2541022165228275};
   check(lv.size() == want.size(), "dep_levels count");
   for (std::size_t k = 0; k < want.size() && k < lv.size(); ++k)
     check_close("dep_levels " + std::to_string(k), lv[k], want[k], kTol);
   for (bool asym : {false, true})
     check_close(std::string("dep_local") + (asym ? " asym" : ""),
-                nns::dep_local(x.data(), y.data(), 80, qa, qb, asym), 0.11550010474265658, kTol);
+                nns::dep_local(x.data(), y.data(), 80, qa, qb, asym), 0.26017793115176047, kTol);
   // NaN used to loop forever in the tied-value scans; every entry point rejects it.
   std::vector<double> tied_nan = xd, tied_inf = xd;
   tied_nan[9] = std::nan("");
