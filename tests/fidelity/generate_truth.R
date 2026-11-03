@@ -697,6 +697,14 @@ for (noise in c("mode", "mode_class")) {
   }
 }
 
+# ---- parallel distance paths: the log-normal rank weight at sd(1:k) ----------
+for (k in c(2, 25)) {
+  add_case(sprintf("distance_single_parallel_k%d", k), "distance_path_single_parallel",
+           NNS:::NNS_distance_path_single_parallel_cpp(RPM, yh, Xt, as.integer(k), FALSE, 1L),
+           scalars = list(k = k, is_class = FALSE), vectors = list(yhat = yh),
+           matrices = list(RPM = RPM, Xtest = Xt))
+}
+
 body <- paste(unlist(cases), collapse = ",\n")
 json <- paste0(
   "{\n",

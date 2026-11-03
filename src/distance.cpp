@@ -374,7 +374,8 @@ std::vector<double> distance_path_parallel(const double* RPM, std::size_t l, std
     
     std::vector<double> ln(k, 0.0);
     if (k >= 2){
-      double sdlog = std::sqrt((static_cast<double>(k) * static_cast<double>(k) - 1.0) / 12.0);
+      // sd(1:k), the sample sd the scalar path uses.
+      double sdlog = std::sqrt(static_cast<double>(k) * (k + 1.0) / 12.0);
       for (int r = 1; r <= k; ++r){ 
         double lp = pdf_lnorm_log(static_cast<double>(r), 0.0, sdlog);
         ln[r-1] = std::fabs(lp); 
@@ -517,7 +518,8 @@ std::vector<double> distance_path_single_parallel(const double* RPM, std::size_t
   
   std::vector<double> lnormW(k, 0.0);
   if (k >= 2) {
-    double sdlog = std::sqrt((static_cast<double>(k) * static_cast<double>(k) - 1.0) / 12.0);
+    // sd(1:k), the sample sd the scalar path uses.
+    double sdlog = std::sqrt(static_cast<double>(k) * (k + 1.0) / 12.0);
     for (int r = 1; r <= k; ++r) {
       double lp = pdf_lnorm_log(static_cast<double>(r), 0.0, sdlog);
       lnormW[r - 1] = std::fabs(lp);
