@@ -655,6 +655,22 @@ add_arma_w("sentinel", data.frame(Period = c(7, 14, 21), Coefficient.of.Variatio
 add_arma_w("constant", data.frame(Period = c(12, 24), Coefficient.of.Variation = 0,
                                   Variable.Coefficient.of.Variation = 0))
 
+# ---- mode: discrete-valued data, edge peaks, observation centres ----------
+# Deterministic inputs, so the RNG stream of the cases above is untouched.
+mvec <- list(
+  runs3 = c(1, 1, 1, 5, 5, 5, 9, 9, 9), runs_unequal = c(1, 1, 2, 2, 2, 5, 5, 9, 9, 9, 9, 12),
+  eq20 = rep(0:19, each = 400), spike = c((0:999) / 999, rep(0.5, 60)),
+  exp_q = -log(1 - ((1:1000) - 0.5) / 1000), grid_far = c((0:499) / 499, 40),
+  steps = rep(c(0, 0.5, 2, 2.25, 7), times = c(3, 5, 5, 2, 4))
+)
+for (nm in names(mvec)) {
+  v <- mvec[[nm]]
+  for (mlt in c(FALSE, TRUE)) {
+    add_case(sprintf("mode_cont_%s_m%d", nm, mlt), "mode", NNS.mode(v, discrete = FALSE, multi = mlt),
+             scalars = list(discrete = FALSE, multi = mlt), vectors = list(x = v))
+  }
+}
+
 body <- paste(unlist(cases), collapse = ",\n")
 json <- paste0(
   "{\n",

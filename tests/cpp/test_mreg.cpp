@@ -163,7 +163,7 @@ int main() {
   const nns::MregSetupResult sm = nns::mreg_setup(X.data(), 5, 2, y.data(), bounds, nns::kMregMedian, false);
   check_close("setup median y group 2", sm.rpm[2 * 2 + 1], 10.0, 0.0);
   // "mode" reduces numeric columns with NNS.mode, not the most frequent value
-  // (1 for y). R e1068620: NNS:::NNS_mreg_setup_cpp(X, y, list(c(0, 1),
+  // (1 for y). R 4d209cc9: NNS:::NNS_mreg_setup_cpp(X, y, list(c(0, 1),
   // c(0, 2)), 2L, is_class).
   const std::vector<double> Xo = {.1, .2, .3, .4, .5, .6, .7, 1, 1, 1, 1, 1, 1, 1};
   const std::vector<double> yo = {1, 1, 5, 6, 7, 8, 9};
@@ -172,8 +172,8 @@ int main() {
     const nns::MregSetupResult so =
         nns::mreg_setup(Xo.data(), 7, 2, yo.data(), bo, nns::kMregMode, is_cls);
     check(so.n_groups == 1, "setup mode shape");
-    check_close("setup mode x1", so.rpm[0], 0.49686269665968863, 1e-12);
-    check_close("setup mode y", so.rpm[2], is_cls ? 1.0 : 5.7245559126153402, 1e-12);
+    check_close("setup mode x1", so.rpm[0], 0.55000000000000004, 1e-12);
+    check_close("setup mode y", so.rpm[2], is_cls ? 1.0 : 7.0, 1e-12);
   }
 
   // duplicate_column_map: first identical column (0-based), NaN never matches.

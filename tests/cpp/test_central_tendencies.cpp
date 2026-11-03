@@ -12,6 +12,7 @@
 #include <cmath>
 #include <cstdint>
 #include <random>
+#include <string>
 #include <vector>
 
 #include "check.hpp"
@@ -154,21 +155,51 @@ void pathological_bin_counts() {
   }
 }
 
-}  // namespace
-
-// Twenty equally frequent values give equally high smoothed peaks; the single
-// mode is the one nearest the gravity (9.2354492587482149), not their average.
+// Every gap wider than a bin: each value is a mode, ends included; the single one is nearest the gravity.
 void equal_peak_cases() {
   std::vector<double> x;
   for (int v = 0; v < 20; ++v) x.insert(x.end(), 400, static_cast<double>(v));
   const std::vector<double> all = nns::mode(x.data(), x.size(), false, true);
-  check(all.size() == 18 && all[8] == mode1(x, false), "equal peaks, the single mode is a peak");
-  check_close("equal peaks, R value", mode1(x, false), 8.9442719099991592, 1e-14);
+  check(all.size() == 20 && all.front() == 0.0 && all.back() == 19.0, "equal peaks, every value a mode");
+  check_close("equal peaks, R value", mode1(x, false), 9.0, 0.0);
 }
+
+void vec_close(const std::string& label, const std::vector<double>& got,
+               const std::vector<double>& want, double rel_tol) {
+  check(got.size() == want.size(), label + ": size " + std::to_string(got.size()));
+  for (std::size_t i = 0; i < got.size() && i < want.size(); ++i)
+    check_close(label + " [" + std::to_string(i) + "]", got[i], want[i], rel_tol);
+}
+
+// Values: R 499f82b1 NNS.mode(x, discrete = FALSE).
+void continuous_mode_cases() {
+  const std::vector<double> a = {1, 1, 1, 5, 5, 5, 9, 9, 9};
+  vec_close("discrete-valued modes", nns::mode(a.data(), a.size(), false, true), {1, 5, 9}, 0.0);
+  check_close("discrete-valued single mode", mode1(a, false), 5.0, 0.0);
+  const std::vector<double> b = {1, 1, 2, 2, 2, 5, 5, 9, 9, 9, 9, 12};
+  check_close("mode centred on observations", mode1(b, false), 2.5714285714285716, 1e-15);
+
+  // A spike at 0.5 on a uniform grid: peaks are centred on the observations, not bin edges.
+  std::vector<double> u;
+  for (int i = 0; i <= 999; ++i) u.push_back(i / 999.0);
+  u.insert(u.end(), 60, 0.5);
+  vec_close("spike modes", nns::mode(u.data(), u.size(), false, true),
+            {0.16616616616616617, 0.39739739739739738, 0.49905806427545557,
+             0.62862862862862867, 0.72972972972972971}, 1e-14);
+  check_close("spike mode", mode1(u, false), 0.49905806427545557, 1e-14);
+
+  // Exp(1) quantiles: the density peaks at its minimum, so the first bins hold the mode.
+  std::vector<double> e;
+  for (int i = 1; i <= 1000; ++i) e.push_back(-std::log(1.0 - (i - 0.5) / 1000.0));
+  check_close("exponential edge mode", mode1(e, false), 0.068015347644584348, 1e-13);
+}
+
+}  // namespace
 
 int main() {
   discrete_mode_cases();
   equal_peak_cases();
+  continuous_mode_cases();
   tiny_histogram_cases();
   pathological_bin_counts();
   return nns_test::check_summary("test_central_tendencies");
