@@ -1,6 +1,6 @@
 // src/distance.cpp
 //
-// Implementation extracted from NNS NNS_distance.cpp (synced to R 13.3, de167f08; the
+// Implementation extracted from NNS NNS_distance.cpp (synced to R 13.3, 79c60272; the
 // 13.3 column-major indexing fix needs no change here). Decoupled from Rcpp.
 //
 // SPDX-License-Identifier: GPL-3.0-only

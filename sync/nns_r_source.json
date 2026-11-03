@@ -1,29 +1,13 @@
 {
   "r_repo": "OVVO-Financial/NNS",
-  "r_commit": "de167f085f171c3a9fbf12cfc61562598850dd5a",
+  "r_commit": "79c60272b6bf0362ddc784bfbd243e77f44697f0",
   "r_version": "13.3",
-  "r_src_tree_hash": "94cf9b092492fdf48666e8876983c1e93264f29ec2cf6797e4379df8e8d0422c",
+  "r_src_tree_hash": "2e183f9bd77fc21b069689e234eb88a85035afc2ee02257fad43bdeeb04c6c81",
   "core_repo": "OVVO-Financial/NNS-core",
-  "core_commit": "706ff42ebe752ec539f56598a05dc36514d4846d",
+  "core_commit": "76a9a5618eee38addc2ea786395cd4356a9916a3",
   "source_paths": [
     "src"
   ],
   "notes": "NNS-core is the portable C++ extraction of the R NNS src layer. The R repo remains authoritative. r_commit/r_src_tree_hash identify the R src tree the core was ported from (original_src/ holds the corresponding R files byte for byte); core_commit is the last NNS-core commit that ported numerics from it. `r_bug_fixes` lists R bugs that NNS-core fixes ahead of R: there the core intentionally differs from this r_commit, and the fidelity suite tags the affected cases with `r_fix`.",
-  "r_bug_fixes": [
-    {
-      "id": "DUPM-MIXED",
-      "r_src": "src/partial_moments.cpp",
-      "summary": "DUPM_C's two mixed integer/fractional degree branches had swapped bodies, so each degree went to the other variable and the fractional one was truncated (D.UPM(.5, 1, c(-4, -9), c(2, 3), 0, 0) = 2.5, not 6.5)"
-    },
-    {
-      "id": "CO-LENGTHS",
-      "r_src": "src/partial_moments.cpp, src/partial_moments_rcpp.cpp",
-      "summary": "Co.LPM/Co.UPM/D.LPM/D.UPM summed min(n_x, n_y) pairs over max(n_x, n_y) for unequal x and y, and an empty target made the vectorised workers take i % 0; now rejected before any parallel work (ctest only: an expected error is not a fidelity case)"
-    },
-    {
-      "id": "DIST-EXP-RATE",
-      "r_src": "src/NNS_distance.cpp",
-      "summary": "NNS_distance_cpp and the parallel distance paths weighted ranks by dexp(rank, rate = k) instead of rate = 1/k as NNS_mreg_predict does"
-    }
-  ]
+  "r_bug_fixes": []
 }

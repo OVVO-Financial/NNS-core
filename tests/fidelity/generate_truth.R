@@ -151,8 +151,6 @@ for (dl in c(0, 1)) {
   }
 }
 # unequal, fractional and higher degrees; ties
-# D.UPM applied each degree to the other variable when exactly one was fractional.
-mixed_fix <- function(dg) if (xor(dg[1] == round(dg[1]), dg[2] == round(dg[2]))) "DUPM-MIXED" else NULL
 xd <- disc[1:120]; yd <- disc[121:240]
 for (dg in list(c(2, 0.5), c(0, 3), c(1.5, 1.5), c(3, 2))) {
   add_case(sprintf("co_lpm_%g_%g", dg[1], dg[2]), "co_lpm", Co.LPM(dg[1], xr, yr, tx, ty, dg[2]),
@@ -166,13 +164,13 @@ for (dg in list(c(2, 0.5), c(0, 3), c(1.5, 1.5), c(3, 2))) {
            vectors = list(x = xd, y = yd))
   add_case(sprintf("d_upm_%g_%g", dg[1], dg[2]), "d_upm", D.UPM(dg[1], dg[2], xr, yr, tx, ty),
            scalars = list(degree_lpm = dg[1], degree_upm = dg[2], target_x = tx, target_y = ty),
-           vectors = list(x = xr, y = yr), r_fix = mixed_fix(dg))
+           vectors = list(x = xr, y = yr))
 }
-# One integer and one fractional degree; R NNS 13.3 gives 2.5 for the first.
+# One integer and one fractional degree: each degree applies to its own variable.
 for (dg in list(c(0.5, 1), c(0, 0.5), c(1, 1.5), c(2, 0.5))) {
   add_case(sprintf("d_upm_mixed_%g_%g", dg[1], dg[2]), "d_upm", D.UPM(dg[1], dg[2], c(-4, -9), c(2, 3), 0, 0),
            scalars = list(degree_lpm = dg[1], degree_upm = dg[2], target_x = 0, target_y = 0),
-           vectors = list(x = c(-4, -9), y = c(2, 3)), r_fix = "DUPM-MIXED")
+           vectors = list(x = c(-4, -9), y = c(2, 3)))
 }
 # vectorised bivariate (target recycling: 40 x targets, 1 y target)
 txv <- sort(xr); tyv <- ty
@@ -192,7 +190,7 @@ for (dg in list(c(0, 0), c(1, 2), c(0.5, 1))) {
   add_case(sprintf("d_upm_v_%g_%g", dg[1], dg[2]), "d_upm_v",
            D.UPM(dg[1], dg[2], xr, yr, txv, tyv),
            scalars = list(degree_1 = dg[1], degree_2 = dg[2]),
-           vectors = list(x = xr, y = yr, target_x = txv, target_y = tyv), r_fix = mixed_fix(dg))
+           vectors = list(x = xr, y = yr, target_x = txv, target_y = tyv))
 }
 
 # ---- n-dimensional co-partial moments, batch, PM.matrix --------------------
@@ -390,24 +388,22 @@ add_case("distance_bulk", "distance_bulk", NNS:::NNS_distance_bulk_cpp(RPM, yh, 
          scalars = list(k = 5, is_class = FALSE), vectors = list(yhat = yh),
          matrices = list(RPM = RPM, Xtest = Xt))
 # NNS_distance_cpp and the parallel paths add rank-weighted kernels to 1/d.
-# Their exponential rank weight used rate k, not 1/k, for k > 1.
 for (k in c(1, 3, 5, 10)) {
-  fix <- if (k > 1) "DIST-EXP-RATE" else NULL
   for (r in c(1, 7)) {
     add_case(sprintf("distance_k%d_row%d", k, r), "distance",
              NNS:::NNS_distance_cpp(RPM, yh, Xt[r, ], as.integer(k), FALSE),
              scalars = list(k = k, use_class = FALSE), vectors = list(yhat = yh, dest = Xt[r, ]),
-             matrices = list(X = RPM), r_fix = fix)
+             matrices = list(X = RPM))
   }
   add_case(sprintf("distance_single_parallel_k%d", k), "distance_path_single_parallel",
            NNS:::NNS_distance_path_single_parallel_cpp(RPM, yh, Xt, as.integer(k), FALSE, 1L),
            scalars = list(k = k, is_class = FALSE), vectors = list(yhat = yh),
-           matrices = list(RPM = RPM, Xtest = Xt), r_fix = fix)
+           matrices = list(RPM = RPM, Xtest = Xt))
 }
 add_case("distance_path_parallel", "distance_path_parallel",
          NNS:::NNS_distance_path_parallel_cpp(RPM, yh, Xt, 10L, FALSE, 1L),
          scalars = list(k = 10, is_class = FALSE), vectors = list(yhat = yh),
-         matrices = list(RPM = RPM, Xtest = Xt), r_fix = "DIST-EXP-RATE")
+         matrices = list(RPM = RPM, Xtest = Xt))
 
 # ---- fast_lm -------------------------------------------------------------------
 i500 <- 1:500

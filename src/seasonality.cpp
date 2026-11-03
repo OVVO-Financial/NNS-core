@@ -1,6 +1,6 @@
 // src/seasonality.cpp
 //
-// Implementation extracted from NNS NNS_seas.cpp (synced to R 13.3, de167f08).
+// Implementation extracted from NNS NNS_seas.cpp (synced to R 13.3, 79c60272).
 // Decoupled from Rcpp.
 //
 // SPDX-License-Identifier: GPL-3.0-only
