@@ -48,8 +48,9 @@ struct MregSetupResult {
 /// Port of NNS_mreg_setup_cpp. X is n x p, y has length n, and
 /// boundaries[j] holds the sorted partition boundaries of column j. Each row
 /// is assigned the id built from findInterval(X[i, j], boundaries[j],
-/// rightmost.closed = TRUE) over the columns; rows sharing an id are reduced
-/// with `reducer_code` (y uses the exact-frequency mode when is_class).
+/// rightmost.closed = TRUE) over the columns; a column whose two boundaries are
+/// exactly its two observed values gets ids 1 and 2 instead. Rows sharing an id
+/// are reduced with `reducer_code` (y uses the exact-frequency mode when is_class).
 /// Non-finite values are dropped before reducing (NaN if none remain).
 MregSetupResult mreg_setup(const double* X, std::size_t n, std::size_t p,
                            const double* y,

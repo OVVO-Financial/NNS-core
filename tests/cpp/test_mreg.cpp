@@ -176,6 +176,37 @@ int main() {
     check_close("setup mode y", so.rpm[2], is_cls ? 1.0 : 7.0, 1e-12);
   }
 
+  // A column whose two boundaries are its two observed values has two cells; the upper
+  // value is not folded into the first by rightmost.closed. R 499f82b1 NNS_mreg_setup_cpp.
+  {
+    const std::vector<double> Xb = {0, 1, 1, 0, 1, 0, 0, 1, .1, .2, .3, .4, .6, .7, .8, .9};
+    const std::vector<double> yb = {1, 2, 3, 4, 5, 6, 7, 8};
+    const nns::MregSetupResult sb =
+        nns::mreg_setup(Xb.data(), 8, 2, yb.data(), {{0, 1}, {0, .5, 1}}, nns::kMregMean, false);
+    check(sb.ids == std::vector<std::string>({"1.1", "2.1", "2.1", "1.1", "2.2", "1.2", "1.2", "2.2"}),
+          "binary column ids");
+    check(sb.row_ids == std::vector<std::string>({"1.1", "1.2", "2.1", "2.2"}), "binary column row ids");
+    const std::vector<double> want = {0, 0, 1, 1, .25, .75, .25, .75, 2.5, 6.5, 2.5, 6.5};
+    check(sb.rpm.size() == want.size(), "binary column rpm size");
+    for (std::size_t k = 0; k < want.size() && k < sb.rpm.size(); ++k)
+      check_close("binary column rpm " + std::to_string(k), sb.rpm[k], want[k], 1e-15);
+
+    const std::vector<double> one = {1, 2, 3, 4, 5};
+    const std::vector<double> coded = {3, -1, 3, -1, 3};
+    const nns::MregSetupResult sc = nns::mreg_setup(coded.data(), 5, 1, one.data(), {{-1, 3}}, nns::kMregMean, false);
+    check(sc.ids == std::vector<std::string>({"2", "1", "2", "1", "2"}), "two-valued column coded -1/3");
+    // A third value, or only one of the two observed, keeps findInterval's ids.
+    const std::vector<double> half = {0, 1, .5, 1, 0};
+    const nns::MregSetupResult sh = nns::mreg_setup(half.data(), 5, 1, one.data(), {{0, 1}}, nns::kMregMean, false);
+    check(sh.ids == std::vector<std::string>(5, "1"), "third value keeps interval ids");
+    const std::vector<double> zeros = {0, 0, 0, 0};
+    const nns::MregSetupResult sz = nns::mreg_setup(zeros.data(), 4, 1, one.data(), {{0, 1}}, nns::kMregMean, false);
+    check(sz.ids == std::vector<std::string>(4, "1"), "one observed value keeps interval ids");
+    const std::vector<double> b3 = {0, 1, 1, 0};
+    const nns::MregSetupResult s3 = nns::mreg_setup(b3.data(), 4, 1, one.data(), {{0, .5, 1}}, nns::kMregMean, false);
+    check(s3.ids == std::vector<std::string>({"1", "2", "2", "1"}), "three boundaries keep interval ids");
+  }
+
   // duplicate_column_map: first identical column (0-based), NaN never matches.
   const double nan = std::nan("");
   const std::vector<double> D = {1, 2, 3, 4, 1, 2, nan, 1, nan, 1, 2, 3};

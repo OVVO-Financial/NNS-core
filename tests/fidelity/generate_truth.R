@@ -705,6 +705,24 @@ for (k in c(2, 25)) {
            matrices = list(RPM = RPM, Xtest = Xt))
 }
 
+# ---- M.reg setup: a column whose two boundaries are its two values has two cells ----
+# M.reg passes sort(unique(X[, j])) for a two-valued column; a third value or a
+# single observed one keeps findInterval's ids.
+Xbin <- cbind(bin = rep(c(0, 1, 1, 0, 1, 0, 0, 1), 25), z = round(seq(0.001, 1, length.out = 200)^2, 6),
+              coded = rep(c(3, -1, 3, -1, -1), 40), half = rep(c(0, 0.5, 1, 1), 50), zero = 0)
+ybin <- round(sin(1:200) + Xbin[, "bin"], 6)
+bbin <- list(c(0, 1), unique(quantile(Xbin[, "z"], seq(0, 1, 0.25), names = FALSE)), c(-1, 3), c(0, 1), c(0, 1))
+for (red in 0:3) {
+  for (cls in c(FALSE, TRUE)) {
+    yy <- if (cls) round(ybin) else ybin
+    s <- NNS:::NNS_mreg_setup_cpp(Xbin, yy, bbin, red, cls)
+    add_case(sprintf("mreg_setup_binary_r%d_c%d", red, cls), "mreg_setup", s$RPM,
+             scalars = list(reducer = red, is_class = cls),
+             vectors = list(y = yy, boundaries = unlist(bbin), boundary_lengths = lengths(bbin)),
+             matrices = list(X = Xbin))
+  }
+}
+
 body <- paste(unlist(cases), collapse = ",\n")
 json <- paste0(
   "{\n",

@@ -2,9 +2,10 @@
 //
 // Pure C++ port of R NNS 13.3 src/NNS_mreg_setup.cpp
 // (NNS_duplicate_column_map_cpp, NNS_mreg_setup_cpp). Decoupled from Rcpp.
-// The reducers, findInterval ids and lexicographic RPM row order are
-// preserved verbatim, except that the "mode" reducer is NNS.mode for numeric
-// responses; class responses keep the exact-frequency mode.
+// The reducers, findInterval ids (two cells for a two-valued column) and
+// lexicographic RPM row order are preserved verbatim, except that the "mode"
+// reducer is NNS.mode for numeric responses; class responses keep the
+// exact-frequency mode.
 //
 // SPDX-License-Identifier: GPL-3.0-only
 #include "nns/mreg.hpp"
@@ -111,6 +112,21 @@ MregSetupResult mreg_setup(const double* X, std::size_t n, std::size_t p,
   if (boundaries.size() != p)
     throw std::invalid_argument("mreg_setup: need one boundary vector per column");
 
+  // Two boundaries that are exactly the column's two observed values are two cells, not one interval.
+  std::vector<bool> binary(p, false);
+  for (std::size_t j = 0; j < p; ++j) {
+    const std::vector<double>& b = boundaries[j];
+    if (b.size() != 2 || !(b[0] < b[1])) continue;
+    bool lower = false, upper = false, exact = true;
+    for (std::size_t i = 0; i < n && exact; ++i) {
+      const double v = X[i + j * n];
+      if (v == b[0]) lower = true;
+      else if (v == b[1]) upper = true;
+      else exact = false;
+    }
+    binary[j] = exact && lower && upper;
+  }
+
   MregSetupResult out;
   out.p = p;
   out.ids.resize(n);
@@ -120,7 +136,9 @@ MregSetupResult mreg_setup(const double* X, std::size_t n, std::size_t p,
     std::string id;
     for (std::size_t j = 0; j < p; ++j) {
       if (j) id += '.';
-      id += std::to_string(find_interval_one(X[i + j * n], boundaries[j]));
+      const double v = X[i + j * n];
+      id += std::to_string(binary[j] ? (v == boundaries[j][0] ? 1 : 2)
+                                     : find_interval_one(v, boundaries[j]));
     }
     groups[id].push_back(i);
     out.ids[i] = std::move(id);
