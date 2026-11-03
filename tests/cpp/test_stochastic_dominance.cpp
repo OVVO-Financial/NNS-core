@@ -8,6 +8,8 @@
 // SPDX-License-Identifier: GPL-3.0-only
 #include "nns/stochastic_dominance.hpp"
 
+#include <algorithm>
+#include <cmath>
 #include <limits>
 #include <vector>
 
@@ -128,6 +130,34 @@ int main() {
     check(tsd(shift(dx, s), shift(dy, s)) == 0, "TSD long tails, no dominance");
     check(tsd(shift(dz, s), shift(dx, s)) == 1, "TSD long tails, dominance");
   }
+  // Efficient-set membership does not depend on column order: X dominates Y
+  // but ties it on the sort key, so the old scan kept both when Y came first.
+  const V ex = {-1, -1, 2}, ey = {-2, 1, 1};
+  check(fsd(ex, ey, false) == 1, "efficient set pair FSD");
+  const V yx = {-2, 1, 1, -1, -1, 2}, xy = {-1, -1, 2, -2, 1, 1};
+  check(nns::fsd(yx.data(), 3, 2, false) == std::vector<int>({1}), "efficient set Y, X");
+  check(nns::fsd(xy.data(), 3, 2, false) == std::vector<int>({0}), "efficient set X, Y");
+  // Rounding-level differences make A > B > C > A; the cycle is kept whole.
+  const double h = 3 * std::ldexp(1.0, -44);
+  const double db[6] = {0, -2, 3, 0, -1, 0}, dc[6] = {0, -1, 0, 3, -2, 0};
+  V cyc[3];
+  for (int i = 0; i < 6; ++i) {
+    cyc[0].push_back(i);
+    cyc[1].push_back(i + h * db[i]);
+    cyc[2].push_back(i + h * dc[i]);
+  }
+  V m3;
+  for (const V& c : cyc) m3.insert(m3.end(), c.begin(), c.end());
+  const std::vector<int> d3 = nns::sd_dom_matrix(m3.data(), 6, 3, 2, true);
+  check(d3[1 * 3 + 0] == 1 && d3[2 * 3 + 1] == 1 && d3[0 * 3 + 2] == 1, "dominance cycle");
+  for (const auto& perm : {std::vector<int>{0, 1, 2}, {1, 2, 0}, {2, 1, 0}, {1, 0, 2}}) {
+    V mp;
+    for (int c : perm) mp.insert(mp.end(), cyc[c].begin(), cyc[c].end());
+    std::vector<int> got = nns::ssd(mp.data(), 6, 3);
+    std::sort(got.begin(), got.end());
+    check(got == std::vector<int>({0, 1, 2}), "dominance cycle kept whole");
+  }
+
   // An infinite value has no midrange to centre on; the tests must still return.
   const double inf = std::numeric_limits<double>::infinity();
   const V ix = {0, 1, inf}, iy = {0, 1, 2};

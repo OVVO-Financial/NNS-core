@@ -16,10 +16,10 @@
 //       on the pair centred on its joint midrange; coinciding curves never
 //       dominate)
 //   - sd_dom_matrix (port of sd_dom_matrix_prefix_parallel)
-//   - the efficient-set sweep (port of NNS_SD_efficient_set_parallel_cpp):
-//       order columns by LPM(degree, tmax, .) ascending (stable tie-break by
-//       index), then keep a column only if it is not dominated by any
-//       previously KEPT column.
+//   - the efficient set (port of NNS_SD_efficient_set_parallel_cpp): keep
+//       every column whose strongly connected component of the dominance
+//       graph no outside column dominates, returned in LPM(degree, tmax, .)
+//       ascending order (stable tie-break by index).
 //   - stoch_superiority (p_gt / p_tie / p_star), two-pointer exact count
 //
 // NA semantics match upstream: NaN ("missing values") is rejected with the
@@ -36,6 +36,7 @@
 #include <limits>
 #include <stdexcept>
 #include <string>
+#include <utility>
 #include <vector>
 
 namespace nns {
@@ -356,6 +357,58 @@ std::vector<int> dom_matrix_for_order(const std::vector<ColPre>& cols,
   return dom;
 }
 
+// Efficient: members of a dominance-cycle component (SCC) that no column outside it dominates.
+std::vector<char> undominated_components(const std::vector<int>& D, std::size_t p) {
+  std::vector<std::size_t> fin;
+  fin.reserve(p);
+  std::vector<char> seen(p, 0);
+  std::vector<std::pair<std::size_t, std::size_t>> st;
+  for (std::size_t s = 0; s < p; ++s) {
+    if (seen[s]) continue;
+    seen[s] = 1;
+    st.push_back({s, 0});
+    while (!st.empty()) {
+      const std::size_t v = st.back().first;
+      std::size_t j = st.back().second;
+      while (j < p && !(D[j * p + v] == 1 && !seen[j])) ++j;
+      st.back().second = j;
+      if (j < p) {
+        seen[j] = 1;
+        st.push_back({j, 0});
+      } else {
+        fin.push_back(v);
+        st.pop_back();
+      }
+    }
+  }
+  constexpr std::size_t kNone = static_cast<std::size_t>(-1);
+  std::vector<std::size_t> comp(p, kNone), stk;
+  std::size_t nc = 0;
+  for (std::size_t a = p; a-- > 0;) {
+    if (comp[fin[a]] != kNone) continue;
+    comp[fin[a]] = nc;
+    stk.push_back(fin[a]);
+    while (!stk.empty()) {
+      const std::size_t v = stk.back();
+      stk.pop_back();
+      for (std::size_t i = 0; i < p; ++i) {
+        if (D[v * p + i] == 1 && comp[i] == kNone) {
+          comp[i] = nc;
+          stk.push_back(i);
+        }
+      }
+    }
+    ++nc;
+  }
+  std::vector<char> entered(nc, 0);
+  for (std::size_t j = 0; j < p; ++j)
+    for (std::size_t i = 0; i < p; ++i)
+      if (D[j * p + i] == 1 && comp[i] != comp[j]) entered[comp[j]] = 1;
+  std::vector<char> keep(p);
+  for (std::size_t k = 0; k < p; ++k) keep[k] = entered[comp[k]] ? 0 : 1;
+  return keep;
+}
+
 // Port of NNS_SD_efficient_set_parallel_cpp.  Returns the surviving
 // ORIGINAL 0-based column indices, in ascending-LPM(degree, tmax) order
 // (the same order in which upstream returns column names).
@@ -410,19 +463,7 @@ std::vector<int> efficient_set(const double* X, std::size_t n, std::size_t p,
   // dominance matrix in the sorted order
   const std::vector<int> D = dom_matrix_for_order(cols, ord, degree, discrete, nthreads);
 
-  // single pass to keep maximal elements: a column is dropped only if a
-  // previously KEPT column dominates it.
-  std::vector<char> keep(p, 0);
-  for (std::size_t k = 0; k < p; ++k) {
-    bool dominated = false;
-    for (std::size_t i = 0; i < k; ++i) {
-      if (keep[i] && D[k * p + i] == 1) {  // D(i, k) == 1
-        dominated = true;
-        break;
-      }
-    }
-    keep[k] = dominated ? 0 : 1;
-  }
+  const std::vector<char> keep = undominated_components(D, p);
 
   std::vector<int> out;
   out.reserve(p);

@@ -563,6 +563,44 @@ add_sd("shift_20000_d3", 3, c(-.0085, -.0152, .0068) + 20000, c(-.0021, -.0033, 
 add_sd("shift_1e6_d3", 3, c(.01, .07) + 1e6, c(0, .08) + 1e6)
 add_sd("shift_20000_d2", 2, c(.01, .03) + 20000, c(0, .04) + 20000)
 
+# ---- stochastic dominance efficient set (NNS_SD_efficient_set_parallel_cpp) ----
+# expected: the efficient columns as 1-based indices into X, in R's output order.
+add_sd_set <- function(name, degree, X, type = "discrete") {
+  colnames(X) <- paste0("C", seq_len(ncol(X)))
+  v <- match(NNS.SD.efficient.set(X, degree, type, status = FALSE), colnames(X))
+  add_case(sprintf("sd_set_%s", name), "sd_set", v,
+           scalars = list(degree = degree, discrete = type == "discrete"),
+           matrices = list(X = unname(X)))
+}
+# Membership used to depend on column order: X dominates Y but ties it on the sort key.
+add_sd_set("pair_yx", 1, cbind(c(-2, 1, 1), c(-1, -1, 2)), "continuous")
+add_sd_set("pair_xy", 1, cbind(c(-1, -1, 2), c(-2, 1, 1)), "continuous")
+# Rounding-level differences make the columns dominate each other in a cycle.
+sa6 <- 0:5; sh <- 3 * 2^-44
+scyc <- cbind(sa6, sa6 + sh * c(0, -2, 3, 0, -1, 0), sa6 + sh * c(0, -1, 0, 3, -2, 0))
+for (p in list(1:3, c(2, 3, 1), c(3, 2, 1), c(2, 1, 3)))
+  add_sd_set(sprintf("cycle_%s", paste(p, collapse = "")), 2, scyc[, p])
+saved_seed <- .Random.seed
+# Seeds 39, 41, 104 and 133 gave an order-dependent set at degree 1 continuous.
+for (s in c(1:8, 39, 41, 104, 133)) {
+  set.seed(s)
+  nc <- sample(4:6, 1)
+  M <- matrix(sample(-3:3, 5 * nc, replace = TRUE), 5, nc)
+  p <- sample(nc)
+  for (d in 1:3) for (type in if (d == 1) c("discrete", "continuous") else "discrete") {
+    tag <- sprintf("seed%d_d%d%s", s, d, if (type == "continuous") "_cont" else "")
+    add_sd_set(tag, d, M, type)
+    add_sd_set(paste0(tag, "_perm"), d, M[, p], type)
+  }
+}
+srn <- matrix(round(rnorm(60 * 8), 4), 60, 8) + rep(seq(0, 0.7, by = 0.1), each = 60)
+.Random.seed <- saved_seed
+for (d in 1:3) {
+  add_sd_set(sprintf("rnorm_d%d", d), d, srn)
+  add_sd_set(sprintf("rnorm_1e6_d%d", d), d, srn + 1e6)
+}
+add_sd_set("rnorm_cont", 1, srn, "continuous")
+
 # ---- seasonality (NNS_seas_cpp) ---------------------------------------------
 # Every component series of each lag, dispersion by the Gini mean difference.
 add_seas <- function(name, x, modulo = NULL, mod_only = TRUE, max_period = NULL) {

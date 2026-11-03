@@ -58,12 +58,13 @@ std::vector<int> sd_dom_matrix(const double* X, std::size_t n, std::size_t p,
                                int degree, bool discrete, int nthreads = -1);
 
 // --- Multivariate Efficient-Set Filters ---
-// Faithful ports of NNS_SD_efficient_set_parallel_cpp: columns are ordered
-// by LPM(degree, global-max, .) ascending (stable tie-break by original
-// index); a column is then dropped only if it is dominated by a previously
-// KEPT column.  The returned vector contains the surviving ORIGINAL 0-based
-// column indices, in that sorted order (the same order in which upstream
-// returns column names).
+// Faithful ports of NNS_SD_efficient_set_parallel_cpp: a column is efficient
+// when no column outside its strongly connected component of the dominance
+// graph dominates it, so membership does not depend on column order and a
+// dominance cycle is kept or dropped whole.  The returned vector contains the
+// surviving ORIGINAL 0-based column indices, ordered by LPM(degree,
+// global-max, .) ascending with a stable tie-break by index (the same order
+// in which upstream returns column names).
 
 /// First-degree Stochastic Dominance efficient set.
 /// @param discrete Treat data as discrete (true) or continuous (false).
