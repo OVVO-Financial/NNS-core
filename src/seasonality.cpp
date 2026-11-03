@@ -1,6 +1,6 @@
 // src/seasonality.cpp
 //
-// Implementation extracted from NNS NNS_seas.cpp (synced to R 13.3, 79c60272).
+// Implementation extracted from NNS NNS_seas.cpp (synced to R 13.3, 499f82b1).
 // Decoupled from Rcpp.
 //
 // SPDX-License-Identifier: GPL-3.0-only
@@ -45,7 +45,7 @@ SeasonalityResult seasonality(const double* x, std::size_t n,
   const int ni = static_cast<int>(n);
   const int half_n = ni / 2;
 
-  // Gini mean difference: unbiased at any component length, and one sort serves every lag.
+  // Gini mean difference: unbiased for iid components with a finite mean, and one sort serves every lag.
   std::vector<int> ord(n);
   std::iota(ord.begin(), ord.end(), 0);
   std::stable_sort(ord.begin(), ord.end(), [&](int a, int b) { return x[a] < x[b]; });

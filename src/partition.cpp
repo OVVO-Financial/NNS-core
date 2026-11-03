@@ -1,6 +1,6 @@
 // src/partition.cpp
 //
-// Pure C++ port of NNS NNS_part.cpp (synced to R 13.3, 79c60272). Decoupled from Rcpp.
+// Pure C++ port of NNS NNS_part.cpp (synced to R 13.3, 499f82b1). Decoupled from Rcpp.
 //
 // This file preserves the original NNS_part_cpp semantics:
 //   - arguments: x, y, type, order_in, obs_req, min_obs_stop,
