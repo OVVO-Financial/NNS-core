@@ -1,6 +1,6 @@
 // tests/cpp/test_dependence.cpp
 //
-// NNS.dep and its kernels against R e1068620: dep / dep_matrix (NNS.dep),
+// NNS.dep and its kernels against R de167f08: dep / dep_matrix (NNS.dep),
 // dep_pair (NNS_dep_pair_cpp) on hand-made cells, dep_levels and dep_local.
 //
 // SPDX-License-Identifier: GPL-3.0-only
@@ -97,6 +97,35 @@ int main() {
   std::vector<double> bad = x;
   bad[3] = std::nan("");
   nns_test::check_throws("NaN input", [&] { nns::dep(bad.data(), y.data(), 80); });
+
+  // Tied data: argument order, row order and the decimal image don't move the
+  // result (R set.seed(208); n <- sample(10:80, 1); sample(0:5, n, TRUE) twice).
+  const std::vector<double> tx8 = {2, 1, 0, 0, 4, 2, 2, 2, 0, 4, 2, 1, 2, 4, 2, 0, 1, 4, 3, 1, 4, 4};
+  const std::vector<double> ty8 = {3, 4, 4, 3, 2, 3, 5, 0, 1, 3, 1, 3, 2, 4, 0, 3, 2, 2, 4, 2, 3, 3};
+  const std::size_t n8 = tx8.size();
+  const double r8 = -0.18902250695448056;
+  std::vector<double> rx8(tx8.rbegin(), tx8.rend()), ry8(ty8.rbegin(), ty8.rend());
+  std::vector<double> dx8(n8), dy8(n8), hx8(n8), hy8(n8);
+  for (std::size_t i = 0; i < n8; ++i) {
+    dx8[i] = tx8[i] / 10.0;
+    dy8[i] = ty8[i] / 10.0;
+    hx8[i] = 1e9 + tx8[i] / 10.0;
+    hy8[i] = 1e9 + ty8[i] / 10.0;
+  }
+  check_result("tied", nns::dep(tx8.data(), ty8.data(), n8), r8, -r8);
+  check_result("tied, swapped", nns::dep(ty8.data(), tx8.data(), n8), r8, -r8);
+  check_result("tied, rows reversed", nns::dep(rx8.data(), ry8.data(), n8), r8, -r8);
+  check_result("tied / 10", nns::dep(dx8.data(), dy8.data(), n8), r8, -r8);
+  // At 1e9 the partition's mean splits round differently: R gives 0.1666, not -0.189.
+  check_result("tied / 10 + 1e9", nns::dep(hx8.data(), hy8.data(), n8), 0.16659666150199048,
+               0.16659666150199048);
+  // Distinct values at a high level are not ties.
+  std::vector<double> ts(100), nts(100);
+  for (int i = 0; i < 100; ++i) {
+    ts[i] = 1.7e9 + (i + 1) / 1e6;
+    nts[i] = -ts[i];
+  }
+  check_result("1.7e9 + t vs its negation", nns::dep(ts.data(), nts.data(), 100), -1.0, 1.0);
 
   // Every point discordant in one cell: perfect negative dependence.
   std::vector<double> c(100), neg(100);
