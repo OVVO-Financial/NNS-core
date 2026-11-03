@@ -9,5 +9,21 @@
     "src"
   ],
   "notes": "NNS-core is the portable C++ extraction of the R NNS src layer. The R repo remains authoritative. r_commit/r_src_tree_hash identify the R src tree the core was ported from (original_src/ holds the corresponding R files byte for byte); core_commit is the last NNS-core commit that ported numerics from it. `r_bug_fixes` lists R bugs that NNS-core fixes ahead of R: there the core intentionally differs from this r_commit, and the fidelity suite tags the affected cases with `r_fix`.",
-  "r_bug_fixes": []
+  "r_bug_fixes": [
+    {
+      "id": "DUPM-MIXED",
+      "r_src": "src/partial_moments.cpp",
+      "summary": "DUPM_C's two mixed integer/fractional degree branches had swapped bodies, so each degree went to the other variable and the fractional one was truncated (D.UPM(.5, 1, c(-4, -9), c(2, 3), 0, 0) = 2.5, not 6.5)"
+    },
+    {
+      "id": "CO-LENGTHS",
+      "r_src": "src/partial_moments.cpp, src/partial_moments_rcpp.cpp",
+      "summary": "Co.LPM/Co.UPM/D.LPM/D.UPM summed min(n_x, n_y) pairs over max(n_x, n_y) for unequal x and y, and an empty target made the vectorised workers take i % 0; now rejected before any parallel work (ctest only: an expected error is not a fidelity case)"
+    },
+    {
+      "id": "DIST-EXP-RATE",
+      "r_src": "src/NNS_distance.cpp",
+      "summary": "NNS_distance_cpp and the parallel distance paths weighted ranks by dexp(rank, rate = k) instead of rate = 1/k as NNS_mreg_predict does"
+    }
+  ]
 }
