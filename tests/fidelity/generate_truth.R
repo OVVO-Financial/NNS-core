@@ -389,6 +389,23 @@ add_case("distance_path", "distance_path", NNS:::NNS_distance_path_cpp(RPM, yh, 
 add_case("distance_bulk", "distance_bulk", NNS:::NNS_distance_bulk_cpp(RPM, yh, Xt, 5L, FALSE),
          scalars = list(k = 5, is_class = FALSE), vectors = list(yhat = yh),
          matrices = list(RPM = RPM, Xtest = Xt))
+# NNS_distance_cpp and the parallel paths add rank-weighted kernels to 1/d.
+for (k in c(1, 3, 5, 10)) {
+  for (r in c(1, 7)) {
+    add_case(sprintf("distance_k%d_row%d", k, r), "distance",
+             NNS:::NNS_distance_cpp(RPM, yh, Xt[r, ], as.integer(k), FALSE),
+             scalars = list(k = k, use_class = FALSE), vectors = list(yhat = yh, dest = Xt[r, ]),
+             matrices = list(X = RPM))
+  }
+  add_case(sprintf("distance_single_parallel_k%d", k), "distance_path_single_parallel",
+           NNS:::NNS_distance_path_single_parallel_cpp(RPM, yh, Xt, as.integer(k), FALSE, 1L),
+           scalars = list(k = k, is_class = FALSE), vectors = list(yhat = yh),
+           matrices = list(RPM = RPM, Xtest = Xt))
+}
+add_case("distance_path_parallel", "distance_path_parallel",
+         NNS:::NNS_distance_path_parallel_cpp(RPM, yh, Xt, 10L, FALSE, 1L),
+         scalars = list(k = 10, is_class = FALSE), vectors = list(yhat = yh),
+         matrices = list(RPM = RPM, Xtest = Xt))
 
 # ---- fast_lm -------------------------------------------------------------------
 i500 <- 1:500
