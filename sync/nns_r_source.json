@@ -1,124 +1,13 @@
 {
   "r_repo": "OVVO-Financial/NNS",
-  "r_commit": "82a92eb45c1a1892acce82e66175cf2e29434b65",
+  "r_commit": "de167f085f171c3a9fbf12cfc61562598850dd5a",
   "r_version": "13.3",
-  "r_src_tree_hash": "c94cfbcbc3c0051696ac64b60b2746bcc6f34fd46bf5447a211e010b8f166818",
+  "r_src_tree_hash": "94cf9b092492fdf48666e8876983c1e93264f29ec2cf6797e4379df8e8d0422c",
   "core_repo": "OVVO-Financial/NNS-core",
-  "core_commit": "505568568d871b48a0d79020a1e7d29b2487bcd5",
+  "core_commit": "706ff42ebe752ec539f56598a05dc36514d4846d",
   "source_paths": [
     "src"
   ],
   "notes": "NNS-core is the portable C++ extraction of the R NNS src layer. The R repo remains authoritative. r_commit/r_src_tree_hash identify the R src tree the core was ported from (original_src/ holds the corresponding R files byte for byte); core_commit is the last NNS-core commit that ported numerics from it. `r_bug_fixes` lists R bugs that NNS-core fixes ahead of R: there the core intentionally differs from this r_commit, and the fidelity suite tags the affected cases with `r_fix`.",
-  "r_bug_fixes": [
-    {
-      "id": "CORE-01",
-      "r_src": "src/partial_moments.h",
-      "summary": "vectorised (>32 targets) LPM/UPM prefix backend cancels catastrophically for degree >= 3; replaced by a cancellation-free sorted-anchor recurrence"
-    },
-    {
-      "id": "CORE-07",
-      "r_src": "src/central_tendencies.cpp",
-      "summary": "discrete NNS.mode keyed on int (UB beyond the int range, 3e9 -> -2147483648)"
-    },
-    {
-      "id": "CORE-08",
-      "r_src": "src/central_tendencies.cpp",
-      "summary": "gravity/mode histogram bin count unbounded and computed as int; long empty runs are now shortened (bit-identical results, O(n) bins)"
-    },
-    {
-      "id": "CORE-12",
-      "r_src": "src/central_tendencies.cpp",
-      "summary": "smooth_counts_tri7 heap over-read with <= 3 bins"
-    },
-    {
-      "id": "CORE-13",
-      "r_src": "src/internal_functions.cpp",
-      "summary": "generate.vectors lag > n out-of-bounds read; generate.lin.vectors(x, 0) division by zero"
-    },
-    {
-      "id": "CORE-16",
-      "r_src": "src/partial_moments.cpp",
-      "summary": "negative / NaN degrees silently accepted; now rejected"
-    },
-    {
-      "id": "MREG-1D",
-      "r_src": "src/NNS_mreg_predict.cpp",
-      "summary": "the 1-D duplicated-coordinate fast path compared raw |x - t| instead of the range-normalised distances, so neighbours and ties (and the prediction) depended on the other queries in the batch"
-    },
-    {
-      "id": "MREG-DIV",
-      "r_src": "src/NNS_mreg_predict.cpp",
-      "summary": "native M.reg distances multiplied by a precomputed 1/range, which rounds differently from the R reference's division and can flip exact nearest-neighbour ties (50 vs 100)"
-    },
-    {
-      "id": "CORE-09",
-      "r_src": "src/partial_moments.cpp, src/NNS_dep.cpp",
-      "summary": "degree-0 Co.UPM_nD/DPM_nD and the bivariate copula's discordant count treated ties inconsistently, so CLPM + CUPM + DPM did not partition the sample"
-    },
-    {
-      "id": "CORE-03",
-      "r_src": "src/NNS_mreg_setup.cpp",
-      "summary": "native noise.reduction = \"mode\" reducer took the most frequent exact value instead of NNS.mode, unlike R's own pure-R path"
-    },
-    {
-      "id": "DEP-01",
-      "r_src": "src/NNS_dep.cpp",
-      "summary": "copula_signed returned +1 for fully discordant cells, so NNS.dep(x, -x) reported Correlation +1"
-    },
-    {
-      "id": "DEP-08",
-      "r_src": "src/NNS_dep.cpp",
-      "summary": "copula_signed compared the concordant share count * (1/n) with 1, false for many n (49 * (1/49) != 1)"
-    },
-    {
-      "id": "MODE-TIES",
-      "r_src": "src/central_tendencies.cpp",
-      "summary": "NNS.mode ordered equally high peaks with std::sort, so the kept peaks and the single mode depended on the standard library; now bin order breaks ties and the single mode averages the highest peaks"
-    },
-    {
-      "id": "SDA-08",
-      "r_src": "src/SD.cpp",
-      "summary": "the pairwise SD test walked both samples with the first sample's length, so .uni results for samples of unequal length were wrong"
-    },
-    {
-      "id": "SDA-07",
-      "r_src": "src/SD.cpp",
-      "summary": "the pairwise SD test reported dominance in both directions when the curves coincide (also continuous FSD ratios equal at every knot)"
-    },
-    {
-      "id": "SDA-13",
-      "r_src": "src/SD.cpp",
-      "summary": "continuous FSD mapped the 0/0 ratio at a point mass to 0 instead of the CDF value, as LPM.ratio does"
-    },
-    {
-      "id": "SDA-05",
-      "r_src": "src/SD.cpp",
-      "summary": "TSD and continuous FSD were checked only at the sample points, missing curve crossings between them"
-    },
-    {
-      "id": "SDA-09",
-      "r_src": "src/SD.cpp",
-      "summary": "SD verdicts compared curves exactly, so rounding noise decided them; now a 64 * DBL_EPSILON relative tie tolerance with compensated prefix sums"
-    },
-    {
-      "id": "TS-04",
-      "r_src": "src/NNS_seas.cpp",
-      "summary": "NNS.seas scored three reverse-stride subsamples per lag with an unweighted mean and <=, instead of all m component series weighted by length with <; a mean of exactly 0 fell back to 1/|acf1| and a near-zero mean was not caught"
-    },
-    {
-      "id": "TS-11",
-      "r_src": "src/internal_functions.cpp",
-      "summary": "ARMA.seas.weighting returned all-zero weights when (VarCV - CV) / sqrt(lag) sums to 0, so NNS.ARMA forecast 0; R falls back to equal weights in its NNS.ARMA wrapper (R/ARMA.R), the native function still returns zeros"
-    },
-    {
-      "id": "TS-CONST",
-      "r_src": "src/NNS_seas.cpp",
-      "summary": "constant series and components were detected by a computed sd of exactly 0, which a repeated decimal misses (rep(.1, 20) gave period 4); equal CVs were ordered by std::sort"
-    },
-    {
-      "id": "SD-SHIFT",
-      "r_src": "src/SD.cpp",
-      "summary": "SD tie tolerances scaled with |value|^degree, so a common shift (a price level of 20000) grew the TSD tolerance past real differences; pairs are now compared centred on their joint midrange"
-    }
-  ]
+  "r_bug_fixes": []
 }

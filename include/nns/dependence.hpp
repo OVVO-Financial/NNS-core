@@ -5,7 +5,7 @@
 #define NNS_DEPENDENCE_HPP
 
 #include <cstddef>
-#include <cstdint>
+#include <string>
 #include <vector>
 
 namespace nns {
@@ -25,19 +25,43 @@ struct DepMatrixResult {
 
 // --- Core API ---
 
-/// Compute bivariate dependence between two vectors
+/// Bivariate dependence from pre-computed partition labels (R NNS_dep_pair_cpp).
+///
+/// Labels are the prefix-coded quadrants of nns::partition ("q", "q1",
+/// "q12", ...); every level of each partition is read from the prefixes.
 ///
 /// @param x Pointer to the first array.
 /// @param y Pointer to the second array.
 /// @param n Length of the arrays.
-/// @param quad_xy Pointer to the pre-hashed partition labels for x given y.
-/// @param quad_yx Pointer to the pre-hashed partition labels for y given x.
-/// @param asym Calculate asymmetric dependence (true/false).
+/// @param quad_xy Labels of the x-only partition of (x, y): y as a function of x.
+/// @param quad_yx Labels of the x-only partition of (y, x); unused when asym.
+/// @param quad_joint Labels of the joint partition of (x, y); unused when asym.
+/// @param asym Only the partition on x (the dependence of y on x).
 /// @return DepResult containing the scalar correlation and dependence.
+/// Throws std::invalid_argument on non-finite x or y or on label length mismatch.
 DepResult dep_pair(const double* x, const double* y, std::size_t n,
-                   const uint64_t* quad_xy, const uint64_t* quad_yx, bool asym = false);
+                   const std::vector<std::string>& quad_xy,
+                   const std::vector<std::string>& quad_yx,
+                   const std::vector<std::string>& quad_joint, bool asym = false);
 
-/// Compute the full pairwise dependence matrix
+/// Unfloored dependence of y on x at each distinct level of the partition on
+/// x (R NNS_dep_levels_cpp); {0} when x or y is constant. Throws on non-finite input.
+std::vector<double> dep_levels(const double* x, const double* y, std::size_t n,
+                               const std::vector<std::string>& quad_xy);
+
+/// Finest-cell dependence (R NNS_dep_local_cpp), the measure NNS.reg's default
+/// order and dy.d_'s step rule read. quad_yx is unused when asym. Throws on
+/// non-finite input.
+double dep_local(const double* x, const double* y, std::size_t n,
+                 const std::vector<std::string>& quad_xy,
+                 const std::vector<std::string>& quad_yx, bool asym = true);
+
+/// NNS.dep(x, y, asym): dep_pair on the partitions R's native path builds.
+/// Throws std::invalid_argument on non-finite input.
+DepResult dep(const double* x, const double* y, std::size_t n, bool asym = false);
+
+/// The pairwise dependence matrix of R NNS.dep(X, asym). Entry [i, j] is
+/// dep(column i, column j) off the diagonal and 1 on it; symmetric unless asym.
 ///
 /// @param X Pointer to the column-major data matrix.
 /// @param n Number of rows in X.
@@ -45,7 +69,7 @@ DepResult dep_pair(const double* x, const double* y, std::size_t n,
 /// @param asym Calculate asymmetric dependence (true/false).
 /// @param nthreads Number of parallel threads to use (-1 for hardware max).
 /// @return DepMatrixResult containing the column-major correlation and dependence matrices.
-DepMatrixResult dep_matrix(const double* X, std::size_t n, std::size_t p, 
+DepMatrixResult dep_matrix(const double* X, std::size_t n, std::size_t p,
                            bool asym = false, int nthreads = -1);
 
 } // namespace nns

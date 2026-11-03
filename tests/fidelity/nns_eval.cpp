@@ -22,13 +22,15 @@
 //
 // Functions: lpm upm lpm_v upm_v lpm_ratio_v upm_ratio_v co_lpm co_upm d_lpm
 // d_upm co_lpm_v co_upm_v d_lpm_v d_upm_v clpm_nd cupm_nd dpm_nd
-// clpm_nd_batch pm_matrix gravity mode partition dep_matrix dep_pair distance_path
-// distance_bulk fast_lm duplicate_column_map mreg_setup mreg_predict
-// mreg_predict_path xstar_path sd_uni seasonality arma_seas_weighting.
+// clpm_nd_batch pm_matrix gravity mode partition dep dep_matrix dep_pair
+// dep_levels dep_local distance_path distance_bulk fast_lm duplicate_column_map
+// mreg_setup mreg_predict mreg_predict_path xstar_path sd_uni seasonality
+// arma_seas_weighting.
 //
 // SPDX-License-Identifier: GPL-3.0-only
 #include "nns/nns.hpp"
 
+#include <cmath>
 #include <cstdio>
 #include <cstdlib>
 #include <exception>
@@ -100,6 +102,13 @@ bool flag(const Flags& f, const std::string& key, bool dflt = false) {
 // "q" -> 0, "q1243" -> 1243 (labels only contain the digits 1-4).
 double quadrant_code(const std::string& q) {
   return q.size() > 1 ? std::strtod(q.c_str() + 1, nullptr) : 0.0;
+}
+
+// Inverse of quadrant_code: 0 -> "q", 1243 -> "q1243".
+std::vector<std::string> labels(const Flags& f, const std::string& key) {
+  std::vector<std::string> out;
+  for (double c : list(f, key)) out.push_back(c == 0.0 ? "q" : "q" + std::to_string(std::llround(c)));
+  return out;
 }
 
 void append(std::vector<double>& out, const std::vector<double>& v) {
@@ -206,15 +215,28 @@ std::vector<double> evaluate(const std::string& func, const Flags& f) {
     const nns::DepMatrixResult r = nns::dep_matrix(X.data(), X.nrow, X.ncol, flag(f, "asym"));
     append(out, r.correlation);
     append(out, r.dependence);
-  } else if (func == "dep_pair") {
-    // quad_xy / quad_yx: partition cell ids, compared only for equality.
+  } else if (func == "dep_pair" || func == "dep_levels" || func == "dep_local") {
+    // quad_*: partition labels as their digits ("q" -> 0, "q1243" -> 1243).
     const std::vector<double> x = list(f, "x"), y = list(f, "y");
-    const std::vector<double> qa = list(f, "quad_xy"), qb = list(f, "quad_yx");
-    if (y.size() != x.size() || qa.size() != x.size() || qb.size() != x.size())
-      die("dep_pair: x, y, quad_xy and quad_yx must have the same length");
-    const std::vector<uint64_t> a(qa.begin(), qa.end()), b(qb.begin(), qb.end());
-    const nns::DepResult r =
-        nns::dep_pair(x.data(), y.data(), x.size(), a.data(), b.data(), flag(f, "asym"));
+    if (y.size() != x.size()) die(func + ": x and y must have the same length");
+    const bool asym = flag(f, "asym", func != "dep_pair");
+    const std::vector<std::string> qa = labels(f, "quad_xy");
+    const std::vector<std::string> qb = has(f, "quad_yx") ? labels(f, "quad_yx") : std::vector<std::string>();
+    if (func == "dep_pair") {
+      const std::vector<std::string> qj =
+          has(f, "quad_joint") ? labels(f, "quad_joint") : std::vector<std::string>();
+      const nns::DepResult r = nns::dep_pair(x.data(), y.data(), x.size(), qa, qb, qj, asym);
+      out.push_back(r.correlation);
+      out.push_back(r.dependence);
+    } else if (func == "dep_levels") {
+      out = nns::dep_levels(x.data(), y.data(), x.size(), qa);
+    } else {
+      out.push_back(nns::dep_local(x.data(), y.data(), x.size(), qa, qb, asym));
+    }
+  } else if (func == "dep") {
+    const std::vector<double> x = list(f, "x"), y = list(f, "y");
+    if (y.size() != x.size()) die("dep: x and y must have the same length");
+    const nns::DepResult r = nns::dep(x.data(), y.data(), x.size(), flag(f, "asym"));
     out.push_back(r.correlation);
     out.push_back(r.dependence);
   } else if (func == "distance_path" || func == "distance_bulk") {
@@ -295,7 +317,9 @@ std::vector<double> evaluate(const std::string& func, const Flags& f) {
       for (double m : list(f, "modulo")) mods.push_back(static_cast<int>(m));
     const nns::SeasonalityResult r = nns::seasonality(
         x.data(), x.size(), mods.empty() ? nullptr : mods.data(), mods.size(),
-        flag(f, "mod_only", true));
+        flag(f, "mod_only", true),
+        has(f, "max_period") ? std::optional<int>(static_cast<int>(scalar(f, "max_period")))
+                             : std::nullopt);
     out.push_back(r.best_period);
     for (int p : r.all_periods) out.push_back(p);
     append(out, r.all_coef_var);

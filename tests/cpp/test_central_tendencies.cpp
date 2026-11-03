@@ -36,7 +36,18 @@ void discrete_mode_cases() {
   const std::vector<double> ties = {1, 2, 2, 3, 3, 4, 4, 5};
   const std::vector<double> multi = nns::mode(ties.data(), ties.size(), true, true);
   check(multi == std::vector<double>({2, 3, 4}), "discrete multi-mode {2,3,4}");
-  check_close("discrete mean of tied modes", mode1(ties, true), 3.0, 0.0);
+  // Tied discrete modes: the one nearest the gravity, then the lower; never their mean.
+  check_close("discrete tied modes {2,3,4}", mode1(ties, true), 3.0, 0.0);
+  check_close("discrete tied modes {1,1,3,3}", mode1({1, 1, 3, 3}, true), 1.0, 0.0);
+  check_close("discrete tied modes {1,3}", mode1({1, 3}, true), 1.0, 0.0);
+  check_close("discrete tied modes {1,2}", mode1({1, 2}, true), 1.0, 0.0);
+  check_close("discrete mode {2,2,7}", mode1({2, 2, 7}, true), 2.0, 0.0);
+  std::vector<double> eq20;
+  for (int v = 0; v < 20; ++v) eq20.insert(eq20.end(), 400, static_cast<double>(v));
+  check_close("discrete twenty tied modes", mode1(eq20, true), 9.0, 0.0);
+  const std::vector<double> two = {1, 3};
+  check(nns::mode(two.data(), 2, true, true) == std::vector<double>({1, 3}),
+        "discrete multi-mode of two points");
   check_close("discrete half-up rounding", mode1({1.5, 1.6, 2.4, 0.2, 7.0}, true), 2.0, 0.0);
   // -0.3 rounds half-up to -0.0, which must share the 0 key and print as 0.
   const double z = mode1({-0.3, -0.2, 0.1, 0.2, 5.0}, true);
@@ -49,7 +60,9 @@ void tiny_histogram_cases() {
   const std::vector<double> a = {0, 0, 1, 1};
   const std::vector<double> ma = nns::mode(a.data(), a.size(), false, true);
   check(ma == std::vector<double>({0, 1}), "mode multi {0,0,1,1}");
-  check_close("mode {0,0,1,1}", mode1(a, false), 0.5, 0.0);
+  // Two equally high bins: the one nearer the gravity (0.375).
+  check_close("mode {0,0,1,1}", mode1(a, false), 0.0, 0.0);
+  check_close("mode {-1,-1,1,1}", mode1({-1, -1, 1, 1}, false), -1.0, 0.0);
   check_close("mode {0,1,1,2}", mode1({0, 1, 1, 2}, false), 1.0, 0.0);
   check_close("mode {1,2,2,5}", mode1({1, 2, 2, 5}, false), 2.0, 0.0);
   check_close("mode {1,1,1,2,9}", mode1({1, 1, 1, 2, 9}, false), 1.0, 0.0);
@@ -144,16 +157,13 @@ void pathological_bin_counts() {
 }  // namespace
 
 // Twenty equally frequent values give equally high smoothed peaks; the single
-// mode averages them (R 13.3 picked 9.9505024998740641 by sort order).
+// mode is the one nearest the gravity (9.2354492587482149), not their average.
 void equal_peak_cases() {
   std::vector<double> x;
   for (int v = 0; v < 20; ++v) x.insert(x.end(), 400, static_cast<double>(v));
   const std::vector<double> all = nns::mode(x.data(), x.size(), false, true);
-  long double sum = 0.0L;
-  for (double v : all) sum += v;
-  check_close("equal peaks, mean of the multi modes", mode1(x, false),
-              static_cast<double>(sum / all.size()), 0.0);
-  check_close("equal peaks, R with the tie patch", mode1(x, false), 9.4411759049991115, 1e-14);
+  check(all.size() == 18 && all[8] == mode1(x, false), "equal peaks, the single mode is a peak");
+  check_close("equal peaks, R value", mode1(x, false), 8.9442719099991592, 1e-14);
 }
 
 int main() {

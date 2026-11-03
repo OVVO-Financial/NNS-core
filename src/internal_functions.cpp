@@ -398,7 +398,8 @@ void force_clt(double* ensemble, std::size_t n, std::size_t J,
   std::sort(sortxbar.begin(), sortxbar.end());
   
   std::vector<double> smean(orig_p);
-  for (std::size_t i = 0; i < orig_p; ++i) smean[i] = orig_sd[i] / std::sqrt(static_cast<double>(J));
+  // Means of n observations spread as sd / sqrt(n), whatever the replicate count J.
+  for (std::size_t i = 0; i < orig_p; ++i) smean[i] = orig_sd[i] / std::sqrt(static_cast<double>(n));
   double smean_scalar = smean.empty() ? 0.0 : smean[0];
   
   std::vector<double> newbar(J);

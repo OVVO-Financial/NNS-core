@@ -1,13 +1,15 @@
 // tests/cpp/test_seasonality.cpp
 //
-// Fixed values from R's NNS.seas, which scores all m component series of each
-// lag m and gives a constant component CV 0.
+// Fixed values from R's NNS_seas_cpp (de167f08): the dispersion of each
+// component series is its Gini mean difference, a CV only for a series on one
+// side of 0, and max_period caps the scan.
 //
 // SPDX-License-Identifier: GPL-3.0-only
 #include "nns/seasonality.hpp"
 
-#include <algorithm>
 #include <cmath>
+#include <optional>
+#include <string>
 #include <vector>
 
 #include "check.hpp"
@@ -17,15 +19,27 @@ using nns_test::check_close;
 
 namespace {
 
-nns::SeasonalityResult seas(const std::vector<double>& x) {
-  return nns::seasonality(x.data(), x.size());
+constexpr double kPi = 3.14159265358979323846;
+
+nns::SeasonalityResult seas(const std::vector<double>& x, std::vector<int> mods = {},
+                            bool mod_only = true, std::optional<int> max_period = std::nullopt) {
+  return nns::seasonality(x.data(), x.size(), mods.empty() ? nullptr : mods.data(), mods.size(),
+                          mod_only, max_period);
 }
 
-std::vector<double> alternating(double hi) {
+void check_cvs(const std::string& label, const nns::SeasonalityResult& r,
+               const std::vector<double>& want, double vcv) {
+  check(r.all_coef_var.size() == want.size(), label + " CV count");
+  for (std::size_t i = 0; i < want.size() && i < r.all_coef_var.size(); ++i)
+    check_close(label + " CV " + std::to_string(i), r.all_coef_var[i], want[i], 1e-13);
+  for (double v : r.all_var_coef_var) check_close(label + " CV(X)", v, vcv, 1e-13);
+}
+
+std::vector<double> repeat2(double a, double b, int times) {
   std::vector<double> x;
-  for (int i = 0; i < 10; ++i) {
-    x.push_back(0.0);
-    x.push_back(hi);
+  for (int i = 0; i < times; ++i) {
+    x.push_back(a);
+    x.push_back(b);
   }
   return x;
 }
@@ -33,55 +47,94 @@ std::vector<double> alternating(double hi) {
 }  // namespace
 
 int main() {
-  const std::vector<double> ap = {
-      112, 118, 132, 129, 121, 135, 148, 148, 136, 119, 104, 118, 115, 126, 141, 135,
-      125, 149, 170, 170, 158, 133, 114, 140, 145, 150, 178, 163, 172, 178, 199, 199,
-      184, 162, 146, 166, 171, 180, 193, 181, 183, 218, 230, 242, 209, 191, 172, 194,
-      196, 196, 236, 235, 229, 243, 264, 272, 237, 211, 180, 201, 204, 188, 235, 227,
-      234, 264, 302, 293, 259, 229, 203, 229, 242, 233, 267, 269, 270, 315, 364, 347,
-      312, 274, 237, 278, 284, 277, 317, 313, 318, 374, 413, 405, 355, 306, 271, 306,
-      315, 301, 356, 348, 355, 422, 465, 467, 404, 347, 305, 336, 340, 318, 362, 348,
-      363, 435, 491, 505, 404, 359, 310, 337, 360, 342, 406, 396, 420, 472, 548, 559,
-      463, 407, 362, 405, 417, 391, 419, 461, 472, 535, 622, 606, 508, 461, 390, 432};
-  // R 13.3 scored three subsamples per lag and ranked 50 first, 12 fifteenth.
-  const nns::SeasonalityResult a = seas(ap);
-  check(a.best_period == 12, "AirPassengers best period 12");
-  check(a.periods == std::vector<int>({12, 13, 6}), "AirPassengers periods");
-  if (a.all_coef_var.size() == 3) {
-    check_close("AirPassengers CV 12", a.all_coef_var[0], 0.4120187274592414, 1e-13);
-    check_close("AirPassengers CV 13", a.all_coef_var[1], 0.42620701632810459, 1e-13);
-    check_close("AirPassengers CV 6", a.all_coef_var[2], 0.42793847815299785, 1e-13);
+  // 10 + sin(2 pi t / 12), t = 1..96.
+  std::vector<double> sine(96);
+  for (int t = 1; t <= 96; ++t) sine[t - 1] = 10.0 + std::sin(2.0 * kPi * t / 12.0);
+  const nns::SeasonalityResult s = seas(sine);
+  check(s.best_period == 12, "sine best period 12");
+  check(s.periods == std::vector<int>({12, 6, 18, 4, 13, 8, 2, 3}), "sine periods");
+  check_cvs("sine", s,
+            {1.320685195487396e-16, 0.06634756991233566, 0.074653765416860723,
+             0.074946105682756614, 0.075743740498660561, 0.078352746850154656,
+             0.079025266554754739, 0.079106687507153883},
+            0.08100043918751168);
+
+  // max_period stops the scan at lag 5; a modulo period beyond it is still scored.
+  const nns::SeasonalityResult m5 = seas(sine, {}, true, 5);
+  check(m5.periods == std::vector<int>({4, 2, 3}), "max_period 5 periods");
+  const nns::SeasonalityResult m5m = seas(sine, {12}, true, 5);
+  check(m5m.periods == std::vector<int>({12}), "max_period 5, modulo 12");
+  check_cvs("max_period 5, modulo 12", m5m, {1.320685195487396e-16}, 0.08100043918751168);
+  const nns::SeasonalityResult m5a = seas(sine, {12}, false, 5);
+  check(m5a.periods == std::vector<int>({12, 4, 2, 3, 1}), "max_period 5, modulo 12, all");
+  check(seas(sine, {}, true, 0).periods == std::vector<int>({1}), "max_period 0 scans lag 1");
+
+  // At a high level the Gini is measured from each component's minimum.
+  for (double lev : {1e6, 1e9}) {
+    std::vector<double> hi(96);
+    for (int t = 1; t <= 96; ++t) hi[t - 1] = lev + std::sin(2.0 * kPi * t / 12.0);
+    const nns::SeasonalityResult h = seas(hi);
+    check(h.best_period == 12, "high-level sine best period 12");
+    for (double c : h.all_coef_var) check(c >= 0.0, "high-level sine CVs are not negative");
+    if (lev == 1e9) {
+      check(h.all_coef_var.size() >= 3, "1e9 sine CV count");
+      if (h.all_coef_var.size() >= 3) {
+        check_close("1e9 sine CV 12", h.all_coef_var[0], 0.0, 1e-25);
+        check_close("1e9 sine CV 6", h.all_coef_var[1], 6.634757147894965e-10, 1e-22);
+        check_close("1e9 sine CV 18", h.all_coef_var[2], 7.4641017913818346e-10, 1e-22);
+      }
+      check_close("1e9 sine CV(X)", h.all_var_coef_var.at(0), 8.1000441166392508e-10, 1e-22);
+    }
   }
 
-  // Lag 2 is the length-weighted mean of the CVs of (10, 11, 12, 13) and (18, 21, 20, 23).
-  const nns::SeasonalityResult toy = seas({10, 18, 11, 21, 12, 20, 13, 23});
-  check(toy.periods == std::vector<int>({2}), "toy periods");
-  check_close("toy CV", toy.all_coef_var.at(0), 0.10690253487368936, 1e-13);
+  // Rounded noisy sine.
+  const std::vector<double> noisy = {
+      10.9574, 10.6267, 10.8611, 10.7836, 10.3059, 9.8105,  9.6496,  9.1106,  9.0305,  9.572,
+      9.5714,  10.5434, 10.9563, 10.9308, 11.3792, 10.9596, 10.3212, 9.9385,  9.499,   9.3316,
+      9.168,   9.275,   9.7612,  9.7224,  10.7546, 10.9029, 11.1505, 10.9844, 10.3034, 9.9448,
+      9.3258,  9.2777,  9.0221,  9.1183,  9.4159,  9.8876,  10.6995, 10.645,  10.9715, 10.929,
+      10.7437, 9.8601,  9.4429,  8.8717,  8.9218,  9.0537,  9.7701,  10.1182, 10.5201, 11.0522,
+      10.9475, 10.8645, 10.5734, 10.3414, 9.6447,  9.2302,  8.6864,  9.1976,  9.5332,  9.82,
+      10.5153, 10.8979, 11.1087, 11.007,  10.5638, 10.2218, 9.6538,  9.3647,  9.2521,  9.2741,
+      9.5865,  9.8155,  10.3769, 10.6927, 10.6721, 10.6009, 10.3222, 9.8885,  9.4875,  9.6185,
+      9.0685,  9.1348,  9.5058,  9.9213,  10.3415, 10.8037, 10.9308, 10.8051, 10.1428, 10.1175,
+      9.8272,  9.0049,  9.1238,  9.1813,  9.6693,  9.8853};
+  const nns::SeasonalityResult ns = seas(noisy);
+  check(ns.periods == std::vector<int>({12, 13, 6, 4}), "noisy sine periods");
+  check_cvs("noisy sine", ns,
+            {0.021470698078126609, 0.070400573968646865, 0.074796433826565825,
+             0.080181686208001701},
+            0.080879033767251335);
 
-  // Each even lag has an all-zero component; 0/0 used to drop every lag.
-  for (double hi : {1.0, 10.0}) {
-    const nns::SeasonalityResult z = seas(alternating(hi));
-    std::vector<int> p = z.periods;
-    std::sort(p.begin(), p.end());
-    check(z.best_period == 2, "alternating best period 2");
-    check(p == std::vector<int>({2, 4, 6, 8}), "alternating periods");
-    check(z.all_coef_var == std::vector<double>(4, 0.0), "alternating CVs are 0");
-    check_close("alternating CV(X)", z.all_var_coef_var.at(0), 1.025978352085154, 1e-13);
+  // Constant series and components: Gini 0, so no lag is strictly below CV(X) = 0.
+  for (double v : {5.0, 0.1}) {
+    const nns::SeasonalityResult c = seas(std::vector<double>(20, v));
+    check(c.best_period == 1 && c.periods == std::vector<int>({1}), "constant series has no period");
+    check_cvs("constant", c, {0.0}, 0.0);
   }
+  // Every even lag has constant components; n / 5 = 4 caps the scan.
+  const nns::SeasonalityResult a1 = seas(repeat2(0.0, 1.0, 10));
+  check(a1.periods == std::vector<int>({2, 4}), "alternating periods");
+  check_cvs("alternating", a1, {0.0, 0.0}, 0.52631578947368418);
+  check_cvs("alternating x10", seas(repeat2(0.0, 10.0, 10)), {0.0, 0.0}, 5.2631578947368425);
+  check_cvs("alternating decimal", seas(repeat2(0.1, 1.0, 10)), {0.0, 0.0}, 0.86124401913875581);
 
-  // No lag is strictly below CV(X) = 0.
-  const nns::SeasonalityResult c = seas(std::vector<double>(20, 5.0));
-  check(c.periods == std::vector<int>({1}), "constant series has no period");
+  // A linear ramp has no period; across 0 the Gini replaces the CV.
+  std::vector<double> up(40), down(40), cross(40);
+  for (int t = 1; t <= 40; ++t) {
+    up[t - 1] = t;
+    down[t - 1] = -t;
+    cross[t - 1] = t - 20.5;
+  }
+  check_cvs("linear", seas(up), {0.66666666666666663}, 0.66666666666666663);
+  check_cvs("linear decreasing", seas(down), {0.66666666666666663}, 0.66666666666666663);
+  const nns::SeasonalityResult lc = seas(cross);
+  check(lc.periods == std::vector<int>({1}), "linear across 0 has no period");
+  check_cvs("linear across 0", lc, {13.666666666666666}, 13.666666666666666);
 
-  // A repeated 0.1 doesn't centre to exactly 0, which used to rank periods by
-  // rounding noise (rep(.1, 20) gave period 4).
-  const nns::SeasonalityResult d = seas(std::vector<double>(20, 0.1));
-  check(d.best_period == 1 && d.periods == std::vector<int>({1}), "constant decimal series");
-  std::vector<double> dec(20);
-  for (int i = 0; i < 20; ++i) dec[i] = (i % 2) ? 1.0 : 0.1;
-  const nns::SeasonalityResult da = seas(dec);
-  check(da.best_period == 2, "alternating decimal best period 2");
-  check(da.all_coef_var == std::vector<double>(4, 0.0), "alternating decimal CVs are 0");
+  // n < 5: the R placeholder.
+  const nns::SeasonalityResult sh = seas({1, 2, 3, 4});
+  check(sh.best_period == 0 && sh.periods == std::vector<int>({0}), "short series");
 
   return nns_test::check_summary("test_seasonality");
 }

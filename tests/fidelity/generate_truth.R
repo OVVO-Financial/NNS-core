@@ -106,23 +106,21 @@ for (data_name in c("ret", "price", "disc")) {
   v <- get(data_name)
   tv <- grid_targets(v)
   for (deg in c(0, 1, 2, 3, 4, 8, 12, 0.5, 2.5)) {
-    # Degrees >= 3 on these data hit the NNS 13.0-13.3 binomial-expansion
-    # cancellation (CORE-01); fractional degrees use the direct path.
-    fix <- if (deg >= 3 && deg == round(deg)) "CORE-01" else NULL
+    # Degrees >= 3 on these data cancelled in the old binomial-expansion
+    # backend; fractional degrees use the direct path.
     # Degrees 1-2 agree to rounding with the old backend except in far tails.
     tol <- if (deg %in% c(1, 2)) 1e-7 else NULL
     add_case(sprintf("lpm_v_%s_d%g", data_name, deg), "lpm_v", LPM(deg, tv, v),
-             scalars = list(degree = deg), vectors = list(target = tv, x = v), tol = tol, r_fix = fix)
+             scalars = list(degree = deg), vectors = list(target = tv, x = v), tol = tol)
     add_case(sprintf("upm_v_%s_d%g", data_name, deg), "upm_v", UPM(deg, tv, v),
-             scalars = list(degree = deg), vectors = list(target = tv, x = v), tol = tol, r_fix = fix)
+             scalars = list(degree = deg), vectors = list(target = tv, x = v), tol = tol)
   }
   for (deg in c(0, 1, 2, 4)) {
-    fix <- if (deg >= 3) "CORE-01" else NULL
     tol <- if (deg %in% c(1, 2)) 1e-7 else NULL
     add_case(sprintf("lpm_ratio_v_%s_d%g", data_name, deg), "lpm_ratio_v", LPM.ratio(deg, tv, v),
-             scalars = list(degree = deg), vectors = list(target = tv, x = v), tol = tol, r_fix = fix)
+             scalars = list(degree = deg), vectors = list(target = tv, x = v), tol = tol)
     add_case(sprintf("upm_ratio_v_%s_d%g", data_name, deg), "upm_ratio_v", UPM.ratio(deg, tv, v),
-             scalars = list(degree = deg), vectors = list(target = tv, x = v), tol = tol, r_fix = fix)
+             scalars = list(degree = deg), vectors = list(target = tv, x = v), tol = tol)
   }
   # <= 32 targets stay on the direct path at every degree.
   t20 <- tv[seq(1, length(tv), length.out = 20)]
@@ -221,8 +219,7 @@ for (nm in c("X3", "X3t")) {
 }
 
 # Degree-0 counts with targets ON data values (ties): CLPM + CUPM + DPM must
-# partition the sample. R 13.3 counted ties as both lower and discordant/upper;
-# fixed in the CORE-09 R patch, so these cases are tagged r_fix.
+# partition the sample (ties count as lower only).
 Xtie <- cbind(disc[1:100], disc[101:200], disc[201:300])
 ttie <- apply(Xtie, 2, median)
 for (nrm in c(TRUE, FALSE)) {
@@ -230,9 +227,9 @@ for (nrm in c(TRUE, FALSE)) {
   add_case(sprintf("clpm_nd_tie_n%d", nrm), "clpm_nd", Co.LPM_nD(Xtie, ttie, 0, nrm),
            scalars = sc, vectors = list(target = ttie), matrices = list(data = Xtie))
   add_case(sprintf("cupm_nd_tie_n%d", nrm), "cupm_nd", Co.UPM_nD(Xtie, ttie, 0, nrm),
-           scalars = sc, vectors = list(target = ttie), matrices = list(data = Xtie), r_fix = "CORE-09")
+           scalars = sc, vectors = list(target = ttie), matrices = list(data = Xtie))
   add_case(sprintf("dpm_nd_tie_n%d", nrm), "dpm_nd", DPM_nD(Xtie, ttie, 0, nrm),
-           scalars = sc, vectors = list(target = ttie), matrices = list(data = Xtie), r_fix = "CORE-09")
+           scalars = sc, vectors = list(target = ttie), matrices = list(data = Xtie))
 }
 
 # ---- gravity / mode --------------------------------------------------------
@@ -254,11 +251,19 @@ for (nm in names(cvec)) {
 }
 big <- c(3e9, 3e9, 3e9, 1, 2)
 add_case("mode_discrete_3e9", "mode", NNS.mode(big, discrete = TRUE, multi = FALSE),
-         scalars = list(discrete = TRUE, multi = FALSE), vectors = list(x = big), r_fix = "CORE-07")
-# Equally high peaks: the single mode averages them instead of taking one by sort order.
+         scalars = list(discrete = TRUE, multi = FALSE), vectors = list(x = big))
+# Tied discrete modes and two- or three-point samples: nearest the gravity, then the lower.
+for (dv in list(c(1, 1, 3, 3), c(1, 3), c(1, 2), c(2, 2, 7), c(4), rep(0:19, each = 400))) {
+  for (mlt in c(FALSE, TRUE)) {
+    add_case(sprintf("mode_discrete_ties_%s_m%d", paste(head(dv, 4), collapse = "_"), mlt), "mode",
+             NNS.mode(dv, discrete = TRUE, multi = mlt),
+             scalars = list(discrete = TRUE, multi = mlt), vectors = list(x = dv))
+  }
+}
+# Equally high peaks: the single mode is the one nearest the gravity.
 eqp <- rep(0:19, each = 400)
 add_case("mode_equal_peaks", "mode", NNS.mode(eqp, discrete = FALSE, multi = FALSE),
-         scalars = list(discrete = FALSE, multi = FALSE), vectors = list(x = eqp), r_fix = "MODE-TIES")
+         scalars = list(discrete = FALSE, multi = FALSE), vectors = list(x = eqp))
 
 # ---- partition (NNS_part_cpp) ----------------------------------------------
 px <- ret[1:300]; py <- ret[301:600]
@@ -282,47 +287,90 @@ add_case("partition_inf", "partition",
          scalars = list(order = 2, obs_req = 8), vectors = list(x = ix, y = iy),
          strings = list(noise_reduction = "off"))
 
-# ---- dependence (NNS_dep_matrix_cpp) ---------------------------------------
-# NNS_dep_matrix_cpp is not called by any R function and was removed from R as
-# dead code in a later patch; only emit these cases when the R build has it.
-# The random draws happen either way so the cases after this block keep their
-# inputs.
-Xd <- cbind(ret[1:300], ret[301:600], 0.5 * ret[1:300] + ret[301:600])
-Xi <- matrix(round(rnorm(900), 6), ncol = 3)
-if (exists("NNS_dep_matrix_cpp", envir = asNamespace("NNS"), inherits = FALSE)) {
-  dm <- NNS:::NNS_dep_matrix_cpp(Xd)
-  add_case("dep_matrix_ret", "dep_matrix", c(dm$Correlation, dm$Dependence), matrices = list(X = Xd))
-  dm <- NNS:::NNS_dep_matrix_cpp(Xi)
-  add_case("dep_matrix_indep", "dep_matrix", c(dm$Correlation, dm$Dependence), matrices = list(X = Xi))
+# ---- dependence (NNS.dep, NNS_dep_pair_cpp and its siblings) ----------------
+# Partition labels travel as their digits ("q" -> 0, "q1243" -> 1243); the
+# core reads every level of a partition from the label prefixes.
+qcode <- function(q) {
+  q <- as.character(q)
+  ifelse(nchar(q) > 1, as.numeric(substring(q, 2)), 0)
 }
-
-# ---- dependence (NNS_dep_pair_cpp, which NNS.dep calls) ---------------------
-# Quadrant labels go to R as strings and to the core as integer cell ids.
-dep_quads <- function(x, y) {
-  l <- length(x)
-  q <- NNS:::NNS_part_cpp(x, y, "XONLY", as.integer(max(ceiling(log(l, 2)), 1L)),
-                          as.integer(max(8L, as.integer(l / 8L))), FALSE, "off", TRUE)$quadrant
-  match(q, unique(q))
+qlab <- function(code) ifelse(code == 0, "q", paste0("q", sprintf("%.0f", code)))
+# The partitions NNS.dep's native path builds.
+dep_part <- function(a, b, type) {
+  l <- length(a)
+  qcode(NNS:::NNS_part_cpp(a, b, type, as.integer(max(ceiling(log(l, 2)), 1L)),
+                           as.integer(max(8L, as.integer(l / 8L))), FALSE, "off", TRUE)$quadrant)
 }
-add_dep_pair <- function(name, x, y, qa, qb, r_fix = NULL) {
+add_dep_pair <- function(name, x, y, qa, qb, qj) {
   for (asym in c(FALSE, TRUE)) {
-    d <- NNS:::NNS_dep_pair_cpp(as.numeric(x), as.numeric(y), as.character(qa), as.character(qb), asym)
+    d <- NNS:::NNS_dep_pair_cpp(as.numeric(x), as.numeric(y), qlab(qa), qlab(qb), qlab(qj), asym)
     add_case(sprintf("dep_pair_%s_a%d", name, asym), "dep_pair", c(d$Correlation, d$Dependence),
              scalars = list(asym = asym),
-             vectors = list(x = x, y = y, quad_xy = qa, quad_yx = qb), r_fix = r_fix)
+             vectors = list(x = x, y = y, quad_xy = qa, quad_yx = qb, quad_joint = qj))
   }
 }
-add_dep_pair("ret", ret[1:300], ret[301:600], dep_quads(ret[1:300], ret[301:600]),
-             dep_quads(ret[301:600], ret[1:300]))
-# Every point discordant: R 13.3 reported Correlation +1 (DEP-01).
-add_dep_pair("negative", ret[1:300], -ret[1:300], dep_quads(ret[1:300], -ret[1:300]),
-             dep_quads(-ret[1:300], ret[1:300]), r_fix = "DEP-01")
-# 49 * (1/49) != 1, so R 13.3 gave dep(b, b) = 0.51 (DEP-08).
+add_dep <- function(name, x, y) {
+  qa <- dep_part(x, y, "XONLY"); qb <- dep_part(y, x, "XONLY"); qj <- dep_part(x, y, NULL)
+  add_dep_pair(name, x, y, qa, qb, qj)
+  add_case(sprintf("dep_levels_%s", name), "dep_levels",
+           NNS:::NNS_dep_levels_cpp(as.numeric(x), as.numeric(y), qlab(qa)),
+           vectors = list(x = x, y = y, quad_xy = qa))
+  for (asym in c(FALSE, TRUE)) {
+    # The local measure takes signed square roots, so a cell term that is 0 up to
+    # rounding (1e-17) reads as up to ~3e-9.
+    add_case(sprintf("dep_local_%s_a%d", name, asym), "dep_local",
+             NNS:::NNS_dep_local_cpp(as.numeric(x), as.numeric(y), qlab(qa), qlab(qb), asym),
+             scalars = list(asym = asym), vectors = list(x = x, y = y, quad_xy = qa, quad_yx = qb),
+             tol = 1e-8)
+    d <- NNS.dep(x, y, asym = asym)
+    add_case(sprintf("dep_%s_a%d", name, asym), "dep", c(d$Correlation, d$Dependence),
+             scalars = list(asym = asym), vectors = list(x = x, y = y))
+  }
+}
+Xd <- cbind(ret[1:300], ret[301:600], 0.5 * ret[1:300] + ret[301:600])
+Xi <- matrix(round(rnorm(900), 6), ncol = 3)
+# Inputs below come from their own stream, so the cases after this block keep theirs.
+saved_seed <- .Random.seed
+set.seed(2026)
+for (asym in c(FALSE, TRUE)) {
+  for (nm in c("ret", "indep")) {
+    X <- if (nm == "ret") Xd else Xi
+    dm <- NNS.dep(X, asym = asym)
+    add_case(sprintf("dep_matrix_%s_a%d", nm, asym), "dep_matrix",
+             c(dm$Correlation, dm$Dependence), scalars = list(asym = asym), matrices = list(X = X))
+  }
+}
+add_dep("ret", ret[1:300], ret[301:600])
+add_dep("negative", ret[1:300], -ret[1:300])
+dq <- round(rnorm(300), 6)
+add_dep("square", dq, round(dq^2 + rnorm(300, 0, .3), 6))
+add_dep("product", dq, round(dq * rnorm(300), 6))
+ang <- runif(300, 0, 2 * pi)
+add_dep("circle", round(cos(ang), 6), round(sin(ang), 6))
+dl <- round(rnorm(1000), 6)
+add_dep("linear_1000", dl, round(dl + rnorm(1000), 6))
+add_dep("small", c(3, 1, 4, 1, 5, 9, 2, 6, 5, 3), c(2, 7, 1, 8, 2, 8, 1, 8, 2, 8))
+dx <- as.numeric(sample(1:20, 300, TRUE))
+add_dep("discrete_binary", dx, as.numeric(rbinom(300, 1, plogis(dx - 10))))
+add_dep("discrete_ties", as.numeric(sample(-3:3, 300, TRUE)), as.numeric(sample(0:4, 300, TRUE)))
 bdep <- c(rep(0, 51), rep(1, 49))
-add_dep_pair("binary_self", bdep, bdep, bdep + 1, bdep + 1, r_fix = "DEP-08")
-# Points on the cell mean were counted as co-lower and discordant (CORE-09).
+add_dep("binary_self", bdep, bdep)
+add_dep("constant", ret[1:50], rep(1, 50))
+# Tied samples at levels where the cell means round: argument and row order don't matter.
+for (sd in c(208, 78, 487)) {
+  set.seed(sd); n <- sample(10:80, 1); tx <- sample(0:5, n, TRUE); ty <- sample(0:5, n, TRUE)
+  add_dep(sprintf("tied_%d", sd), tx, ty)
+  add_dep(sprintf("tied_%d_swap", sd), ty, tx)
+  add_dep(sprintf("tied_%d_rev", sd), rev(tx), rev(ty))
+  add_dep(sprintf("tied_%d_div10", sd), tx / 10, ty / 10)
+  add_dep(sprintf("tied_%d_1e9", sd), 1e9 + tx / 10, 1e9 + ty / 10)
+}
+hts <- 1.7e9 + seq_len(100) / 1e6
+add_dep("distinct_1.7e9", hts, -hts)
+# One cell, points on the cell mean: the degree-0 counts partition it.
 xtie <- rep(c(-1, 0, 1), 33); ytie <- rep(c(0, 1, -1, 0, -1, 1, 1, 0, -1), 11)
-add_dep_pair("ties", xtie, ytie, rep(1, 99), rep(1, 99), r_fix = "CORE-09")
+add_dep_pair("ties", xtie, ytie, rep(0, 99), rep(0, 99), rep(0, 99))
+.Random.seed <- saved_seed
 
 # ---- distance (NNS_distance_path_cpp / bulk) --------------------------------
 RPM <- matrix(round(runif(120 * 3), 6), ncol = 3); yh <- round(rnorm(120), 6)
@@ -360,10 +408,8 @@ for (red in 0:3) {
     add_case(sprintf("mreg_setup_r%d_c%d", red, cls), "mreg_setup", s$RPM,
              scalars = list(reducer = red, is_class = cls),
              vectors = list(y = yy, boundaries = bvec, boundary_lengths = blen),
-             matrices = list(X = Xm),
-             # reducer 2 ("mode"): R 13.3's native setup took the most frequent
-             # exact value; fixed to NNS.mode in the CORE-03 R patch.
-             r_fix = if (red == 2L) "CORE-03" else NULL)
+             # reducer 2 ("mode") is NNS.mode, not the most frequent exact value.
+             matrices = list(X = Xm))
   }
 }
 s <- NNS:::NNS_mreg_setup_cpp(Xm[, 1:3], ym, bounds[1:3], 3L, FALSE)
@@ -412,14 +458,14 @@ add_case("mreg_predict_1d_tie", "mreg_predict",
                                        c(.01, .01), c(1, 1), FALSE, 1L),
          scalars = list(k = 1, dist_code = 0, is_class = FALSE),
          vectors = list(yhat = c(0, 100, 999), mins = c(.01, .01), maxs = c(1, 1)),
-         matrices = list(rpm_x = xt1, Xtest = matrix(.07, 1, 2)), r_fix = "MREG-1D")
+         matrices = list(rpm_x = xt1, Xtest = matrix(.07, 1, 2)))
 # Dividing by the range puts .03 strictly nearer (.26, .26) than .49; 1/range ties them.
 xd <- cbind(c(.03, .49, 1), c(.03, .49, 1)); qd <- rbind(c(.26, .26), c(.2, .3))
 add_case("mreg_predict_range_divide", "mreg_predict",
          NNS:::NNS_mreg_predict_v2_cpp(xd, c(0, 100, 999), qd, 1L, 0L, c(.03, .03), c(1, 1), FALSE, 1L),
          scalars = list(k = 1, dist_code = 0, is_class = FALSE),
          vectors = list(yhat = c(0, 100, 999), mins = c(.03, .03), maxs = c(1, 1)),
-         matrices = list(rpm_x = xd, Xtest = qd), r_fix = "MREG-DIV")
+         matrices = list(rpm_x = xd, Xtest = qd))
 # A query about 58 from every regression point: the Student-t weights underflow.
 xf <- matrix(0, 1000, 60); yf <- c(numeric(999), 100); qf <- matrix(0, 1, 60)
 for (i in 0:999) {
@@ -445,11 +491,11 @@ for (cf in list(c(0.5, -1.2, 0, 2), c(0, 0, 0, 0), c(1, 1, 1, 1))) {
 # ---- stochastic dominance (NNS_FSD/SSD/TSD_uni_cpp) --------------------------
 # x is never longer than y: R 13.3 walked y with x's length, which reads past
 # the end of a shorter y.
-add_sd <- function(name, degree, x, y, type = "discrete", r_fix = NULL) {
+add_sd <- function(name, degree, x, y, type = "discrete") {
   v <- switch(degree, NNS.FSD.uni(x, y, type), NNS.SSD.uni(x, y), NNS.TSD.uni(x, y))
   add_case(sprintf("sd_uni_%s", name), "sd_uni", v,
            scalars = list(degree = degree, discrete = type == "discrete"),
-           vectors = list(x = x, y = y), r_fix = r_fix)
+           vectors = list(x = x, y = y))
 }
 sa <- round(rnorm(50), 4); sb <- round(sa - abs(rnorm(50)), 4)
 for (deg in 1:3) {
@@ -458,86 +504,95 @@ for (deg in 1:3) {
 }
 add_sd("shift_cont", 1, sa, sb, "continuous")
 su <- round(runif(30, 1, 3), 3); sv <- round(runif(45, 0, 2), 3)
-add_sd("unequal_d1", 1, su, sv, r_fix = "SDA-08")
-add_sd("unequal_short_d1", 1, 4, c(3, 0), r_fix = "SDA-08")
-add_sd("unequal_short_d2", 2, c(1, 4), c(3, 1, 3, 0, 2), r_fix = "SDA-08")
-add_sd("unequal_short_d3", 3, c(4, 1), c(0, 3, 3, 4), r_fix = "SDA-08")
+add_sd("unequal_d1", 1, su, sv)
+add_sd("unequal_short_d1", 1, 4, c(3, 0))
+add_sd("unequal_short_d2", 2, c(1, 4), c(3, 1, 3, 0, 2))
+add_sd("unequal_short_d3", 3, c(4, 1), c(0, 3, 3, 4))
 # Equal curves, and ratios equal at every knot, are not dominance.
-add_sd("coincide_cont", 1, c(1, 2), c(1, 1, 2, 2), "continuous", r_fix = "SDA-07")
-add_sd("coincide_d2", 2, c(1, 2), c(1, 1, 2, 2), r_fix = "SDA-07")
-add_sd("coincide_d3", 3, c(1, 2), c(1, 1, 2, 2), r_fix = "SDA-07")
-add_sd("knots_cross_xy", 1, c(0, 0, 3, 3), c(1, 1, 3, 0), "continuous", r_fix = "SDA-07")
-add_sd("knots_cross_yx", 1, c(1, 1, 3, 0), c(0, 0, 3, 3), "continuous", r_fix = "SDA-07")
-add_sd("midpoint_xy", 1, c(0, 1, 1), c(0, 0, 1), "continuous", r_fix = "SDA-07")
-add_sd("midpoint_yx", 1, c(0, 0, 1), c(0, 1, 1), "continuous", r_fix = "SDA-07")
-add_sd("midpoint_mass_xy", 1, c(1, 1), c(0, 1), "continuous", r_fix = "SDA-07")
+add_sd("coincide_cont", 1, c(1, 2), c(1, 1, 2, 2), "continuous")
+add_sd("coincide_d2", 2, c(1, 2), c(1, 1, 2, 2))
+add_sd("coincide_d3", 3, c(1, 2), c(1, 1, 2, 2))
+add_sd("knots_cross_xy", 1, c(0, 0, 3, 3), c(1, 1, 3, 0), "continuous")
+add_sd("knots_cross_yx", 1, c(1, 1, 3, 0), c(0, 0, 3, 3), "continuous")
+add_sd("midpoint_xy", 1, c(0, 1, 1), c(0, 0, 1), "continuous")
+add_sd("midpoint_yx", 1, c(0, 0, 1), c(0, 1, 1), "continuous")
+add_sd("midpoint_mass_xy", 1, c(1, 1), c(0, 1), "continuous")
 # Continuous ratio 0/0 at a point mass is the CDF value.
-add_sd("ratio_00_mass", 1, rep(4, 6), c(5, 5, 0, 4, 0, 2), "continuous", r_fix = "SDA-13")
+add_sd("ratio_00_mass", 1, rep(4, 6), c(5, 5, 0, 4, 0, 2), "continuous")
 # The curves cross between sample points.
-add_sd("interior_d3", 3, c(-0.85, -1.52, 0.68), c(-0.21, -0.33, -1.67), r_fix = "SDA-05")
+add_sd("interior_d3", 3, c(-0.85, -1.52, 0.68), c(-0.21, -0.33, -1.67))
 add_sd("interior_cont", 1, c(0.15, 1.55, -0.86, -0.8, 0.25, 0.33),
-       c(-0.15, 1.17, 0.26, -0.04, -2.44, 1.19), "continuous", r_fix = "SDA-05")
+       c(-0.15, 1.17, 0.26, -0.04, -2.44, 1.19), "continuous")
 # Rounding-level differences are ties; the large sample needs compensated
 # prefix sums to stay within the tolerance.
-add_sd("tol_sum", 2, c(0.1, 0.7), c(0, 0.8), r_fix = "SDA-09")
+add_sd("tol_sum", 2, c(0.1, 0.7), c(0, 0.8))
 zq <- qnorm(ppoints(100))
-add_sd("tol_spread", 2, zq + 0.37, 2 * zq + 0.37, r_fix = "SDA-09")
+add_sd("tol_spread", 2, zq + 0.37, 2 * zq + 0.37)
 zr <- round(qnorm(ppoints(1e4)), 1)
-add_sd("tol_spread_1e4_d2", 2, 0.1 * zr + 0.3, 0.2 * zr + 0.3, r_fix = "SDA-09")
-add_sd("tol_spread_1e4_d3", 3, 0.1 * zr + 0.3, 0.2 * zr + 0.3, r_fix = "SDA-09")
+add_sd("tol_spread_1e4_d2", 2, 0.1 * zr + 0.3, 0.2 * zr + 0.3)
+add_sd("tol_spread_1e4_d3", 3, 0.1 * zr + 0.3, 0.2 * zr + 0.3)
 # A common shift keeps the verdict; the tolerances used to grow with the level squared.
-add_sd("shift_20000_d3", 3, c(-.0085, -.0152, .0068) + 20000, c(-.0021, -.0033, -.0167) + 20000,
-       r_fix = "SD-SHIFT")
-add_sd("shift_1e6_d3", 3, c(.01, .07) + 1e6, c(0, .08) + 1e6, r_fix = "SD-SHIFT")
-add_sd("shift_20000_d2", 2, c(.01, .03) + 20000, c(0, .04) + 20000, r_fix = "SD-SHIFT")
+add_sd("shift_20000_d3", 3, c(-.0085, -.0152, .0068) + 20000, c(-.0021, -.0033, -.0167) + 20000)
+add_sd("shift_1e6_d3", 3, c(.01, .07) + 1e6, c(0, .08) + 1e6)
+add_sd("shift_20000_d2", 2, c(.01, .03) + 20000, c(0, .04) + 20000)
 
 # ---- seasonality (NNS_seas_cpp) ---------------------------------------------
-# R 13.3 scored three reverse-stride subsamples per lag; R now scores all m
-# component series, weighted by length, with < and a near-zero-mean sd rule.
-add_seas <- function(name, x, modulo = NULL, mod_only = TRUE, r_fix = "TS-04") {
-  s <- NNS:::NNS_seas_cpp(as.numeric(x), if (is.null(modulo)) NULL else as.integer(modulo), mod_only)
+# Every component series of each lag, dispersion by the Gini mean difference.
+add_seas <- function(name, x, modulo = NULL, mod_only = TRUE, max_period = NULL) {
+  s <- NNS:::NNS_seas_cpp(as.numeric(x), if (is.null(modulo)) NULL else as.integer(modulo), mod_only,
+                          if (is.null(max_period)) NULL else as.integer(max_period))
   ap <- s$all.periods
   vec <- list(x = x)
   if (!is.null(modulo)) vec$modulo <- modulo
+  sc <- list(mod_only = mod_only)
+  if (!is.null(max_period)) sc$max_period <- max_period
   add_case(sprintf("seas_%s", name), "seasonality",
            c(s$best.period, ap$Period, ap$Coefficient.of.Variation,
              ap$Variable.Coefficient.of.Variation),
-           scalars = list(mod_only = mod_only), vectors = vec, r_fix = r_fix)
+           scalars = sc, vectors = vec)
 }
 ap_x <- as.numeric(AirPassengers)
 add_seas("airpassengers", ap_x)
 add_seas("airpassengers_mod12", ap_x, 12)
 add_seas("airpassengers_mod12_all", ap_x, 12, mod_only = FALSE)
+add_seas("airpassengers_mod40", ap_x, 40)
 add_seas("lynx", as.numeric(lynx))
 add_seas("toy", c(10, 18, 11, 21, 12, 20, 13, 23))
 add_seas("odd", ap_x[1:143])
 sz <- sin(2 * pi * (1:96) / 12)
 add_seas("zero_mean", sz - mean(sz))
+add_seas("sine", 10 + sz)
+add_seas("sine_noisy", round(10 + sz + rnorm(96, 0, .2), 4))
+add_seas("sine_max5", 10 + sz, max_period = 5)
+add_seas("sine_1e6", 1e6 + sz)
+add_seas("sine_1e9", 1e9 + sz)
+# A modulo period beyond the scan limit is scored, not given CV(X).
+add_seas("sine_max5_mod12", 10 + sz, 12, max_period = 5)
+add_seas("sine_max5_mod12_all", 10 + sz, 12, mod_only = FALSE, max_period = 5)
 add_seas("constant", rep(5, 20))
-# An all-zero component has CV 0, not 0/0.
 add_seas("alternating", rep(c(0, 1), 10))
-# A repeated decimal doesn't centre to exactly 0, so constancy comes from the raw values.
-add_seas("constant_decimal", rep(.1, 20), r_fix = "TS-CONST")
-add_seas("alternating_decimal", rep(c(.1, 1), 10), r_fix = "TS-CONST")
-add_seas("short", c(1, 2, 3, 4), r_fix = NULL)
+add_seas("constant_decimal", rep(.1, 20))
+add_seas("alternating_decimal", rep(c(.1, 1), 10))
+add_seas("linear", as.numeric(1:40))
+add_seas("linear_across_zero", (1:40) - 20.5)
+add_seas("short", c(1, 2, 3, 4))
 
 # ---- ARMA seasonal weights (ARMA.seas.weighting) -----------------------------
-# NNS.ARMA falls back to equal weights in its R wrapper when
-# (VarCV - CV) / sqrt(lag) sums to 0; R 13.3 has no wrapper and returns zeros.
-add_arma_w <- function(name, M, r_fix = NULL) {
+# Equal weights when (VarCV - CV) / sqrt(lag) sums to 0.
+add_arma_w <- function(name, M) {
   ns <- asNamespace("NNS")
   fn <- if (exists(".arma_lag_weights", envir = ns, inherits = FALSE)) ns$.arma_lag_weights
         else ns$ARMA.seas.weighting
   w <- fn(FALSE, M)
   add_case(sprintf("arma_seas_weighting_%s", name), "arma_seas_weighting", c(w$lag, w$Weights),
            vectors = list(periods = M$Period, covar = M$Coefficient.of.Variation,
-                          varcovar = M$Variable.Coefficient.of.Variation), r_fix = r_fix)
+                          varcovar = M$Variable.Coefficient.of.Variation))
 }
 add_arma_w("airpassengers", NNS:::NNS_seas_cpp(ap_x, NULL, TRUE)$all.periods)
 add_arma_w("sentinel", data.frame(Period = c(7, 14, 21), Coefficient.of.Variation = 0.3,
-                                  Variable.Coefficient.of.Variation = 0.3), r_fix = "TS-11")
+                                  Variable.Coefficient.of.Variation = 0.3))
 add_arma_w("constant", data.frame(Period = c(12, 24), Coefficient.of.Variation = 0,
-                                  Variable.Coefficient.of.Variation = 0), r_fix = "TS-11")
+                                  Variable.Coefficient.of.Variation = 0))
 
 body <- paste(unlist(cases), collapse = ",\n")
 json <- paste0(

@@ -5,6 +5,7 @@
 #define NNS_SEASONALITY_HPP
 
 #include <cstddef>
+#include <optional>
 #include <vector>
 
 namespace nns {
@@ -25,10 +26,12 @@ struct SeasonalityResult {
 /// @param modulo Pointer to an optional array of integer modulos to enforce.
 /// @param mod_len Length of the modulo array (0 if none).
 /// @param mod_only Flag to keep only periods matching the modulo set.
+/// @param max_period Optional cap on the lags scanned (at least 1).
 /// @return SeasonalityResult containing the detected periods and coefficients of variation.
 SeasonalityResult seasonality(const double* x, std::size_t n,
                               const int* modulo = nullptr, std::size_t mod_len = 0,
-                              bool mod_only = true);
+                              bool mod_only = true,
+                              std::optional<int> max_period = std::nullopt);
 
 } // namespace nns
 
