@@ -76,15 +76,29 @@ double null_T0(int m, int a, int b) {
   return e;
 }
 
+// log(k!) without std::lgamma, which writes the global signgam and so races
+// across dep_matrix workers.
+double log_factorial(int k) {
+  if (k < 2) return 0.0;
+  if (k <= 170) {
+    double f = 1.0;
+    for (int i = 2; i <= k; ++i) f *= static_cast<double>(i);
+    return std::log(f);
+  }
+  const double x = static_cast<double>(k), x2 = x * x;
+  return x * std::log(x) - x + 0.5 * std::log(2.0 * kPi * x) +
+         (1.0 / 12.0 - (1.0 / 360.0 - 1.0 / (1260.0 * x2)) / x2) / x;
+}
+
 // log(m! / prod(multiplicity!)), the number of distinct arrangements of v.
 double log_arrangements(std::vector<double> v) {
   std::sort(v.begin(), v.end());
   const int m = static_cast<int>(v.size());
-  double out = std::lgamma(static_cast<double>(m) + 1.0);
+  double out = log_factorial(m);
   for (int i = 0; i < m;) {
     int j = i;
     while (j < m && v[j] == v[i]) ++j;
-    out -= std::lgamma(static_cast<double>(j - i) + 1.0);
+    out -= log_factorial(j - i);
     i = j;
   }
   return out;
@@ -209,11 +223,11 @@ enum PartitionKind { CONDITIONAL, JOINT };
 // Chance that y is constant in a cell of m points under the permutation null.
 double p_constant(int m, const std::vector<int>& counts, int n, std::vector<double>& cache) {
   if (cache[m] >= 0.0) return cache[m];
-  const double lchoose_n = std::lgamma(n + 1.0) - std::lgamma(m + 1.0) - std::lgamma(n - m + 1.0);
+  const double lchoose_n = log_factorial(n) - log_factorial(m) - log_factorial(n - m);
   double p = 0.0;
   for (int c : counts) {
     if (c < m) break;
-    p += std::exp(std::lgamma(c + 1.0) - std::lgamma(m + 1.0) - std::lgamma(c - m + 1.0) - lchoose_n);
+    p += std::exp(log_factorial(c) - log_factorial(m) - log_factorial(c - m) - lchoose_n);
   }
   cache[m] = std::min(1.0, p);
   return cache[m];
