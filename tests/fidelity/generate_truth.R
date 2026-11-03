@@ -151,6 +151,8 @@ for (dl in c(0, 1)) {
   }
 }
 # unequal, fractional and higher degrees; ties
+# D.UPM applied each degree to the other variable when exactly one was fractional.
+mixed_fix <- function(dg) if (xor(dg[1] == round(dg[1]), dg[2] == round(dg[2]))) "DUPM-MIXED" else NULL
 xd <- disc[1:120]; yd <- disc[121:240]
 for (dg in list(c(2, 0.5), c(0, 3), c(1.5, 1.5), c(3, 2))) {
   add_case(sprintf("co_lpm_%g_%g", dg[1], dg[2]), "co_lpm", Co.LPM(dg[1], xr, yr, tx, ty, dg[2]),
@@ -164,7 +166,13 @@ for (dg in list(c(2, 0.5), c(0, 3), c(1.5, 1.5), c(3, 2))) {
            vectors = list(x = xd, y = yd))
   add_case(sprintf("d_upm_%g_%g", dg[1], dg[2]), "d_upm", D.UPM(dg[1], dg[2], xr, yr, tx, ty),
            scalars = list(degree_lpm = dg[1], degree_upm = dg[2], target_x = tx, target_y = ty),
-           vectors = list(x = xr, y = yr))
+           vectors = list(x = xr, y = yr), r_fix = mixed_fix(dg))
+}
+# One integer and one fractional degree; R NNS 13.3 gives 2.5 for the first.
+for (dg in list(c(0.5, 1), c(0, 0.5), c(1, 1.5), c(2, 0.5))) {
+  add_case(sprintf("d_upm_mixed_%g_%g", dg[1], dg[2]), "d_upm", D.UPM(dg[1], dg[2], c(-4, -9), c(2, 3), 0, 0),
+           scalars = list(degree_lpm = dg[1], degree_upm = dg[2], target_x = 0, target_y = 0),
+           vectors = list(x = c(-4, -9), y = c(2, 3)), r_fix = "DUPM-MIXED")
 }
 # vectorised bivariate (target recycling: 40 x targets, 1 y target)
 txv <- sort(xr); tyv <- ty
@@ -184,7 +192,7 @@ for (dg in list(c(0, 0), c(1, 2), c(0.5, 1))) {
   add_case(sprintf("d_upm_v_%g_%g", dg[1], dg[2]), "d_upm_v",
            D.UPM(dg[1], dg[2], xr, yr, txv, tyv),
            scalars = list(degree_1 = dg[1], degree_2 = dg[2]),
-           vectors = list(x = xr, y = yr, target_x = txv, target_y = tyv))
+           vectors = list(x = xr, y = yr, target_x = txv, target_y = tyv), r_fix = mixed_fix(dg))
 }
 
 # ---- n-dimensional co-partial moments, batch, PM.matrix --------------------
