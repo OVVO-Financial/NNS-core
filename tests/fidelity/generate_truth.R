@@ -685,6 +685,18 @@ for (nm in names(gvec)) {
   }
 }
 
+# ---- partition "mode" reducer: the continuous mode on data finer than integers ----
+gx <- (0:199) / 199
+for (noise in c("mode", "mode_class")) {
+  for (xo in c(FALSE, TRUE)) {
+    p <- NNS:::NNS_part_cpp(gx, sin(3 * gx), if (xo) "XONLY" else NULL, NULL, 8L, FALSE, noise)
+    add_case(sprintf("partition_unit_%s_x%d", noise, xo), "partition",
+             c(p$order, qcode(p$dt$quadrant), p$regression.points$x, p$regression.points$y),
+             scalars = list(xonly = xo, obs_req = 8), vectors = list(x = gx, y = sin(3 * gx)),
+             strings = list(noise_reduction = noise))
+  }
+}
+
 body <- paste(unlist(cases), collapse = ",\n")
 json <- paste0(
   "{\n",
