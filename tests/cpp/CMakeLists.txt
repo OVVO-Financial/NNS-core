@@ -8,6 +8,7 @@ set(NNSCORE_CPP_TESTS
     test_prefix_backend
     test_degree_validation
     test_co_moments
+    test_distance
     test_central_tendencies
     test_internal_functions
     test_fast_lm
