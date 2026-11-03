@@ -36,7 +36,18 @@ void discrete_mode_cases() {
   const std::vector<double> ties = {1, 2, 2, 3, 3, 4, 4, 5};
   const std::vector<double> multi = nns::mode(ties.data(), ties.size(), true, true);
   check(multi == std::vector<double>({2, 3, 4}), "discrete multi-mode {2,3,4}");
-  check_close("discrete mean of tied modes", mode1(ties, true), 3.0, 0.0);
+  // Tied discrete modes: the one nearest the gravity, then the lower; never their mean.
+  check_close("discrete tied modes {2,3,4}", mode1(ties, true), 3.0, 0.0);
+  check_close("discrete tied modes {1,1,3,3}", mode1({1, 1, 3, 3}, true), 1.0, 0.0);
+  check_close("discrete tied modes {1,3}", mode1({1, 3}, true), 1.0, 0.0);
+  check_close("discrete tied modes {1,2}", mode1({1, 2}, true), 1.0, 0.0);
+  check_close("discrete mode {2,2,7}", mode1({2, 2, 7}, true), 2.0, 0.0);
+  std::vector<double> eq20;
+  for (int v = 0; v < 20; ++v) eq20.insert(eq20.end(), 400, static_cast<double>(v));
+  check_close("discrete twenty tied modes", mode1(eq20, true), 9.0, 0.0);
+  const std::vector<double> two = {1, 3};
+  check(nns::mode(two.data(), 2, true, true) == std::vector<double>({1, 3}),
+        "discrete multi-mode of two points");
   check_close("discrete half-up rounding", mode1({1.5, 1.6, 2.4, 0.2, 7.0}, true), 2.0, 0.0);
   // -0.3 rounds half-up to -0.0, which must share the 0 key and print as 0.
   const double z = mode1({-0.3, -0.2, 0.1, 0.2, 5.0}, true);
