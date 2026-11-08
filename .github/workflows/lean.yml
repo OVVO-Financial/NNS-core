@@ -1,0 +1,32 @@
+name: Lean proofs
+
+on:
+  push:
+    branches: [main]
+    paths: ["proofs/**", ".github/workflows/lean.yml"]
+  pull_request:
+    branches: [main]
+    paths: ["proofs/**", ".github/workflows/lean.yml"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: lake build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Reject sorry / admit
+        run: |
+          if grep -rnE '\b(sorry|admit)\b' proofs --include='*.lean' --exclude-dir=.lake; then
+            echo "::error::proofs contain sorry/admit"
+            exit 1
+          fi
+
+      - uses: leanprover/lean-action@v1
+        with:
+          lake-package-directory: proofs
+          build-args: "--wfail"
