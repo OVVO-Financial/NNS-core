@@ -35,7 +35,12 @@ inline double repeat_multiplication(double value, int n) {
   return result;
 }
 
-inline bool is_integer(double v) { return v == static_cast<double>(static_cast<int>(v)); }
+// Range check first: casting a double outside int's range is undefined.
+inline bool is_integer(double v) {
+  return v >= std::numeric_limits<int>::min() &&
+         v <= std::numeric_limits<int>::max() &&
+         v == static_cast<double>(static_cast<int>(v));
+}
 
 inline double lower_component(double diff, double degree, bool degree_is_int) {
   if (degree == 0) return diff >= 0.0 ? 1.0 : 0.0;
@@ -477,6 +482,8 @@ template <typename ScalarFn>
 void two_var_vectorized(ScalarFn&& scalar, const double* target_x,
                         std::size_t n_tx, const double* target_y,
                         std::size_t n_ty, double* out, int n_threads) {
+  if (n_tx == 0 || n_ty == 0)
+    throw std::invalid_argument("`target_x` and `target_y` must not be empty");
   const std::size_t n_out = (n_tx > n_ty ? n_tx : n_ty);
   parallel_for(
       0, n_out,
