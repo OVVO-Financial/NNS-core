@@ -17,7 +17,7 @@ namespace {
 int g_failures = 0;
 
 void check_close(const char* label, double got, double want, double tol) {
-  if (std::fabs(got - want) > tol) {
+  if (!(std::fabs(got - want) <= tol)) {
     std::fprintf(stderr, "FAIL %s: got %.12g, want %.12g\n", label, got, want);
     ++g_failures;
   } else {
